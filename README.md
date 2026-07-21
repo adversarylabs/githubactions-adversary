@@ -16,3 +16,7 @@ npm test
 adversary validate .
 adversary pack --check .
 ```
+
+## Automatic detection
+
+`adversary auto` selects the github-actions adversary when changes include `.github/workflows/*.yml` or `.github/workflows/*.yaml`, plus the other domain-specific patterns declared in `adversary.yaml`. Unrelated changes do not select it.
