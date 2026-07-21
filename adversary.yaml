@@ -8,6 +8,11 @@ triggers:
     - ".github/workflows/*.yml"
     - ".github/workflows/*.yaml"
 
+detection:
+  files:
+    - ".github/workflows/*.yml"
+    - ".github/workflows/*.yaml"
+
 runtime:
   name: node
   version: "22"
