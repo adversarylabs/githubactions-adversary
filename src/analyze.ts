@@ -2,6 +2,7 @@ import { readFile, readdir } from "node:fs/promises";
 import { join, sep } from "node:path";
 import { type RuleContext } from "@adversarylabs/sdk";
 import { observationFor } from "./rules.js";
+import { runModelGithubActionsReview } from "./model-review.js";
 import { spec, type MatchExpression, type RuleSpec } from "./spec.js";
 
 const SKIPPED = new Set([".adversary", ".git", ".hg", ".next", ".svn", "coverage", "dist", "node_modules", "target", "vendor"]);
@@ -35,6 +36,23 @@ export async function analyzeRepository(ctx: RuleContext): Promise<void> {
       evidence: sources.slice(0, 5).map((file) => ({ file: file.path, line: 1 })),
     });
   }
+
+  const staticSeverities = detections.map((d) => String(d.rule.severity));
+  const staticPrimaryConcern = detections[0]?.rule.title.toLowerCase();
+  await runModelGithubActionsReview(
+    ctx,
+    detections.map((d) => ({
+      ruleId: d.rule.id,
+      file: d.file,
+      line: d.line,
+      snippet: d.snippet,
+      message: d.label,
+      severity: String(d.rule.severity),
+    })),
+    sources.map((s) => ({ path: s.path, content: s.source })),
+    staticSeverities,
+    staticPrimaryConcern,
+  );
 }
 
 function evaluate(rule: RuleSpec, sources: SourceFile[], allPaths: string[]): Detection[] {

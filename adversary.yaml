@@ -1,5 +1,5 @@
 name: github-actions
-version: 0.0.3
+version: 0.0.4
 description: Reviews GitHub Actions workflows for security, supply-chain, and reliability defects.
 
 triggers:
@@ -27,6 +27,7 @@ permissions:
     write:
       - .adversary/results
   network: false
+  model: true
   environment:
     allow: []
 

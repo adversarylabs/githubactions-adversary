@@ -1,6 +1,6 @@
 {
   "name": "github-actions",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "type": "module",
   "private": true,
   "scripts": {
@@ -8,7 +8,7 @@
     "test": "npm run build && tsx --test test/*.test.ts"
   },
   "dependencies": {
-    "@adversarylabs/sdk": "^0.1.7"
+    "@adversarylabs/sdk": "0.1.13"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
