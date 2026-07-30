@@ -1,0 +1,7 @@
+name: ci
+on: issue_comment
+jobs:
+  comment:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Comment was ${{ github.event.comment.body }}"

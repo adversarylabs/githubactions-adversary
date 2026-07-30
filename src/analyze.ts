@@ -1,15 +1,18 @@
 import { readFile, readdir } from "node:fs/promises";
 import { join, sep } from "node:path";
 import { type RuleContext } from "@adversarylabs/sdk";
+import { detectCiSecurityIssues, GHA_RULE_IDS } from "./ci-security-core.js";
 import { observationFor } from "./rules.js";
 import { runModelGithubActionsReview } from "./model-review.js";
-import { spec, type MatchExpression, type RuleSpec } from "./spec.js";
+import { spec, type RuleSpec } from "./spec.js";
 
 const SKIPPED = new Set([".adversary", ".git", ".hg", ".next", ".svn", "coverage", "dist", "node_modules", "target", "vendor"]);
 const MAX_FILES = 5000;
 
 interface SourceFile { path: string; source: string }
 interface Detection { rule: RuleSpec; file: string; line: number; snippet: string; label: string; data: Record<string, unknown> }
+
+const byId = new Map<string, RuleSpec>(spec.rules.map((rule) => [rule.id, rule]));
 
 export async function analyzeRepository(ctx: RuleContext): Promise<void> {
   const allPaths = await walk(ctx.repoPath);
@@ -20,12 +23,29 @@ export async function analyzeRepository(ctx: RuleContext): Promise<void> {
       const source = await readFile(join(ctx.repoPath, path), "utf8");
       if (!source.includes("\0")) sources.push({ path, source });
     } catch {
-      // A disappearing or unreadable file is ignored deterministically.
+      // ignore unreadable files
     }
   }
   ctx.summary.files_scanned = sources.length;
 
-  const detections = spec.rules.flatMap((rule) => evaluate(rule, sources, allPaths));
+  const detections: Detection[] = [];
+  for (const file of sources) {
+    for (const hit of detectCiSecurityIssues(file.path, file.source)) {
+      const ruleId = GHA_RULE_IDS[hit.key];
+      if (!ruleId) continue;
+      const rule = byId.get(ruleId);
+      if (!rule) continue;
+      detections.push({
+        rule,
+        file: hit.file,
+        line: hit.line,
+        snippet: hit.snippet,
+        label: hit.label,
+        data: hit.data,
+      });
+    }
+  }
+
   detections.sort((a, b) => a.rule.id.localeCompare(b.rule.id) || a.file.localeCompare(b.file) || a.line - b.line || a.label.localeCompare(b.label));
   for (const detection of detections) ctx.observe(observationFor(detection));
 
@@ -53,44 +73,6 @@ export async function analyzeRepository(ctx: RuleContext): Promise<void> {
     staticSeverities,
     staticPrimaryConcern,
   );
-}
-
-function evaluate(rule: RuleSpec, sources: SourceFile[], allPaths: string[]): Detection[] {
-  const match = rule.match;
-  if (match.kind === "missing-file") {
-    const triggers = allPaths.filter((path) => match.triggerFiles.some((glob) => matchesGlob(path, glob))).sort();
-    const required = allPaths.some((path) => match.requiredFiles.some((glob) => matchesGlob(path, glob)));
-    if (triggers.length === 0 || required) return [];
-    return [{ rule, file: triggers[0] ?? ".", line: 1, snippet: triggers[0] ?? "", label: rule.title, data: { triggerFiles: triggers.slice(0, 10), requiredFiles: match.requiredFiles } }];
-  }
-
-  const matchingSources = sources.filter((file) => match.files.some((glob) => matchesGlob(file.path, glob)));
-  if (match.kind === "missing-content") {
-    return matchingSources.flatMap((file) => {
-      if (!test(file.source, match.trigger) || test(file.source, match.required)) return [];
-      const location = locate(file.source, match.trigger);
-      if (location === undefined) return [];
-      return [{ rule, file: file.path, ...location, label: rule.title, data: { requiredPattern: match.required.pattern } }];
-    });
-  }
-
-  return matchingSources.flatMap((file) => {
-    if (!match.requires.every((pattern) => test(file.source, pattern))) return [];
-    const location = locate(file.source, match.pattern);
-    if (location === undefined) return [];
-    return [{ rule, file: file.path, ...location, label: rule.title, data: { matchedPattern: match.pattern.pattern } }];
-  });
-}
-
-function test(source: string, expression: MatchExpression): boolean {
-  return new RegExp(expression.pattern, expression.flags).test(source);
-}
-
-function locate(source: string, expression: MatchExpression): { line: number; snippet: string } | undefined {
-  const match = new RegExp(expression.pattern, expression.flags).exec(source);
-  if (match?.index === undefined) return undefined;
-  const line = source.slice(0, match.index).split(/\r?\n/).length;
-  return { line, snippet: source.split(/\r?\n/)[line - 1]?.trim().slice(0, 240) ?? "" };
 }
 
 async function walk(root: string): Promise<string[]> {
