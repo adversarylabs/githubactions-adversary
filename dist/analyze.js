@@ -1,10 +1,12 @@
 import { readFile, readdir } from "node:fs/promises";
 import { join, sep } from "node:path";
+import { detectCiSecurityIssues, GHA_RULE_IDS } from "./ci-security-core.js";
 import { observationFor } from "./rules.js";
 import { runModelGithubActionsReview } from "./model-review.js";
 import { spec } from "./spec.js";
 const SKIPPED = new Set([".adversary", ".git", ".hg", ".next", ".svn", "coverage", "dist", "node_modules", "target", "vendor"]);
 const MAX_FILES = 5000;
+const byId = new Map(spec.rules.map((rule) => [rule.id, rule]));
 export async function analyzeRepository(ctx) {
     const allPaths = await walk(ctx.repoPath);
     const candidatePaths = allPaths.filter((path) => spec.files.some((glob) => matchesGlob(path, glob))).sort();
@@ -16,11 +18,29 @@ export async function analyzeRepository(ctx) {
                 sources.push({ path, source });
         }
         catch {
-            // A disappearing or unreadable file is ignored deterministically.
+            // ignore unreadable files
         }
     }
     ctx.summary.files_scanned = sources.length;
-    const detections = spec.rules.flatMap((rule) => evaluate(rule, sources, allPaths));
+    const detections = [];
+    for (const file of sources) {
+        for (const hit of detectCiSecurityIssues(file.path, file.source)) {
+            const ruleId = GHA_RULE_IDS[hit.key];
+            if (!ruleId)
+                continue;
+            const rule = byId.get(ruleId);
+            if (!rule)
+                continue;
+            detections.push({
+                rule,
+                file: hit.file,
+                line: hit.line,
+                snippet: hit.snippet,
+                label: hit.label,
+                data: hit.data,
+            });
+        }
+    }
     detections.sort((a, b) => a.rule.id.localeCompare(b.rule.id) || a.file.localeCompare(b.file) || a.line - b.line || a.label.localeCompare(b.label));
     for (const detection of detections)
         ctx.observe(observationFor(detection));
@@ -41,45 +61,6 @@ export async function analyzeRepository(ctx) {
         message: d.label,
         severity: String(d.rule.severity),
     })), sources.map((s) => ({ path: s.path, content: s.source })), staticSeverities, staticPrimaryConcern);
-}
-function evaluate(rule, sources, allPaths) {
-    const match = rule.match;
-    if (match.kind === "missing-file") {
-        const triggers = allPaths.filter((path) => match.triggerFiles.some((glob) => matchesGlob(path, glob))).sort();
-        const required = allPaths.some((path) => match.requiredFiles.some((glob) => matchesGlob(path, glob)));
-        if (triggers.length === 0 || required)
-            return [];
-        return [{ rule, file: triggers[0] ?? ".", line: 1, snippet: triggers[0] ?? "", label: rule.title, data: { triggerFiles: triggers.slice(0, 10), requiredFiles: match.requiredFiles } }];
-    }
-    const matchingSources = sources.filter((file) => match.files.some((glob) => matchesGlob(file.path, glob)));
-    if (match.kind === "missing-content") {
-        return matchingSources.flatMap((file) => {
-            if (!test(file.source, match.trigger) || test(file.source, match.required))
-                return [];
-            const location = locate(file.source, match.trigger);
-            if (location === undefined)
-                return [];
-            return [{ rule, file: file.path, ...location, label: rule.title, data: { requiredPattern: match.required.pattern } }];
-        });
-    }
-    return matchingSources.flatMap((file) => {
-        if (!match.requires.every((pattern) => test(file.source, pattern)))
-            return [];
-        const location = locate(file.source, match.pattern);
-        if (location === undefined)
-            return [];
-        return [{ rule, file: file.path, ...location, label: rule.title, data: { matchedPattern: match.pattern.pattern } }];
-    });
-}
-function test(source, expression) {
-    return new RegExp(expression.pattern, expression.flags).test(source);
-}
-function locate(source, expression) {
-    const match = new RegExp(expression.pattern, expression.flags).exec(source);
-    if (match?.index === undefined)
-        return undefined;
-    const line = source.slice(0, match.index).split(/\r?\n/).length;
-    return { line, snippet: source.split(/\r?\n/)[line - 1]?.trim().slice(0, 240) ?? "" };
 }
 async function walk(root) {
     const files = [];

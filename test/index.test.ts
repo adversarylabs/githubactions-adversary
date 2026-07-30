@@ -5,15 +5,33 @@ import { createApp } from "../src/index.ts";
 
 const fixture = (name: string) => new URL(`../fixtures/${name}`, import.meta.url).pathname;
 const review = (name: string, raw = false) => createApp().run({ input: { source: { path: fixture(name) } }, includeRawObservations: raw });
-const ruleCases = [{"key":"unpinned-action","id":"github-actions.unpinned-action"},{"key":"write-all","id":"github-actions.write-all"},{"key":"pull-request-target-head","id":"github-actions.pull-request-target-head"}];
 
-test("every initial rule has focused vulnerable and clean coverage", async () => {
+/** P0 catalog rules: fixture key → rule id */
+const ruleCases = [
+  { key: "unpinned-action", id: "gha.action.unpinned-tag" },
+  { key: "write-all", id: "gha.permissions.write-all" },
+  { key: "pull-request-target-head", id: "gha.pull-request-target.pwn" },
+  { key: "script-injection", id: "gha.script-injection.context" },
+  { key: "self-hosted-untrusted", id: "gha.self-hosted.untrusted" },
+  { key: "contents-write-on-pr", id: "gha.permissions.contents-write-on-pr" },
+  { key: "runs-on-expression", id: "gha.runs-on.expression" },
+] as const;
+
+test("every P0 rule has focused vulnerable and clean coverage", async () => {
   for (const rule of ruleCases) {
     const vulnerable = await review(`rules/${rule.key}/vulnerable`, true);
-    assert.equal(vulnerable.findings.some((finding) => finding.ruleId === rule.id), true, `${rule.id} did not detect its vulnerable fixture`);
+    assert.equal(
+      vulnerable.findings.some((finding) => finding.ruleId === rule.id),
+      true,
+      `${rule.id} did not detect its vulnerable fixture; findings=${vulnerable.findings.map((f) => f.ruleId).join(",")}`,
+    );
     assert.equal(vulnerable.rawObservations?.every((item) => item.location?.file !== undefined), true);
     const clean = await review(`rules/${rule.key}/clean`);
-    assert.equal(clean.findings.some((finding) => finding.ruleId === rule.id), false, `${rule.id} flagged its clean fixture`);
+    assert.equal(
+      clean.findings.some((finding) => finding.ruleId === rule.id),
+      false,
+      `${rule.id} flagged its clean fixture`,
+    );
   }
 });
 

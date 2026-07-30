@@ -1,0 +1,9 @@
+name: ci
+on: issue_comment
+jobs:
+  comment:
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          BODY: ${{ github.event.comment.body }}
+        run: echo "Comment was processed"
