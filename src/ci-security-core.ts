@@ -221,14 +221,14 @@ export const GHA_RULE_IDS: Record<CiSecurityHit["key"], string | null> = {
   "secret-scope-job": null, // depot-only P0 mapping
 }
 
-/** Map shared keys to depot catalog rule ids. */
+/** Map shared keys to depotci rule ids (depotci-adversary). */
 export const DEPOT_RULE_IDS: Record<CiSecurityHit["key"], string | null> = {
-  "unpinned-action": "depot.action.unpinned",
-  "write-all": "depot.permissions.broad",
-  "pull-request-target-pwn": "depot.pull-request.untrusted-code",
-  "script-injection": "depot.script-injection",
-  "self-hosted-untrusted": "depot.runs-on.self-hosted",
-  "contents-write-on-pr": "depot.permissions.broad",
-  "runs-on-expression": "depot.runs-on.self-hosted",
-  "secret-scope-job": "depot.secret.scope-broad",
+  "unpinned-action": "depotci.action.unpinned",
+  "write-all": "depotci.permissions.broad",
+  "pull-request-target-pwn": "depotci.pull-request.untrusted-code",
+  "script-injection": "depotci.script-injection",
+  "self-hosted-untrusted": "depotci.runs-on.self-hosted",
+  "contents-write-on-pr": "depotci.permissions.broad",
+  "runs-on-expression": "depotci.runs-on.self-hosted",
+  "secret-scope-job": "depotci.secret.scope-broad",
 }
