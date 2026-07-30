@@ -1,4 +1,4 @@
-name: github-actions
+name: ci/github-actions
 version: 0.0.5
 description: Reviews GitHub Actions workflows for security, supply-chain, and reliability defects.
 
