@@ -1,26 +1,44 @@
-# GitHub Actions adversary
+# ci/github-actions
 
-Reviews GitHub Actions workflows for security, supply-chain, and reliability defects.
+**ci/github-actions** reviews GitHub Actions workflows for **security, supply-chain, and reliability** defects: unpinned actions, over-broad tokens, pwn-request patterns, script injection, and unsafe self-hosted runners.
 
-## Checks
+It is a **CI security reviewer** for `.github/workflows`, not a general YAML linter. When it reports, a workflow can steal secrets or run untrusted code with privileged tokens.
 
-- **External action uses a mutable reference:** Pin external actions to full commit SHAs.
-- **Workflow grants write-all token permissions:** Default to read-only and elevate only narrowly scoped release jobs.
-- **Trusted pull_request_target workflow executes pull-request code:** Never execute pull-request-controlled code in pull_request_target.
+## What it does
 
-## Development
+1. **Discovers** workflow files under `.github/workflows/`.
+2. **Runs deterministic detectors** with stable rule ids and file:line evidence.
+3. **Synthesizes a review** prioritizing critical privilege and injection issues.
+4. Optionally **enhances** with a model when provided.
 
-```sh
-npm ci
-npm test
-adversary validate .
-adversary pack --check .
-```
+It never executes the scanned project as the product under review, never installs dependencies into it, and never needs network access to the target repository.
 
-## Automatic detection
+## What it detects
 
-`adversary auto` selects the github-actions adversary when changes include `.github/workflows/*.yml` or `.github/workflows/*.yaml`, plus the other domain-specific patterns declared in `adversary.yaml`. Unrelated changes do not select it.
+Every **shipped rule id**, severity, and short description lives in **[CHECKS.md](CHECKS.md)** — the audit surface for “what does this adversary look for?”
 
-## Issue catalog
+Highlights:
 
-What this adversary targets (P0 / P1 / LLM-only priorities, detection notes, and public pattern references) is documented in [docs/issue-catalog.md](docs/issue-catalog.md).
+| Area | Examples |
+| --- | --- |
+| Supply chain | Actions pinned to tags/branches instead of full SHAs |
+| Permissions | `permissions: write-all`; contents write on PR |
+| Pwn-request | `pull_request_target` checking out PR head |
+| Injection | Untrusted `github.event` fields expanded in `run:` |
+| Runners | Untrusted code on self-hosted; dynamic `runs-on` expressions |
+
+### Ownership boundaries
+
+Other official adversaries own adjacent classes so findings stay non-duplicative:
+
+| Concern | Owned by |
+| --- | --- |
+| Depot-specific cache/runner concerns | [`ci/depot`](https://github.com/adversarylabs/depotci-adversary) |
+| Committed secrets in any file | [`security/secrets`](https://github.com/adversarylabs/secrets-adversary) |
+| Dockerfile supply chain | [`container/dockerfile`](https://github.com/adversarylabs/dockerfile-adversary) |
+
+## Precision stance
+
+- **High confidence** only for deterministic, evidence-backed patterns.
+- Clean fixtures must stay quiet; vulnerable fixtures must fire where graded fixtures exist.
+- Prefer missing a weak signal over a false positive on normal production code.

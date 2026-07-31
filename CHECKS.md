@@ -1,20 +1,84 @@
-# Initial checks
+# Checks — what ci/github-actions detects
 
-## github-actions.unpinned-action
+This file is the **public audit list** of detectors. If a rule id appears here, it is part of the product surface: it should fire on a vulnerable pattern, stay quiet on the documented clean case, and produce file:line evidence where applicable.
 
-- Severity: medium
-- Category: supply-chain
-- Recommendation: Pin external actions to full commit SHAs.
+Runtime source of truth: [`src/spec.ts`](src/spec.ts).
+Regression entry: [`test/`](test/).
 
-## github-actions.write-all
+**Scope:** `.github/workflows/*.yml` and `*.yaml`.
 
-- Severity: high
-- Category: permissions
-- Recommendation: Default to read-only and elevate only narrowly scoped release jobs.
+---
 
-## github-actions.pull-request-target-head
+## Critical
 
-- Severity: critical
-- Category: security
-- Recommendation: Never execute pull-request-controlled code in pull_request_target.
+### `gha.pull-request-target.pwn`
 
+| | |
+| --- | --- |
+| **What** | pull_request_target checks out untrusted PR code |
+| **Why** | Base-repo secrets + write token with attacker-controlled code |
+| **Looks for** | pull_request_target + checkout of PR head ref/sha |
+| **Stays quiet when** | Metadata-only jobs; use pull_request for untrusted code |
+| **Remediation** | Never checkout PR head in pull_request_target |
+
+### `gha.script-injection.context`
+
+| | |
+| --- | --- |
+| **What** | Untrusted github.event interpolated into run: |
+| **Why** | Issue titles/bodies/refs can break out of shell |
+| **Looks for** | Inline ${{ github.event… }} in run scripts |
+| **Stays quiet when** | Pass via env: and quote "$VAR" |
+| **Remediation** | Never expand untrusted event fields into shell |
+
+## High
+
+### `gha.action.unpinned-tag`
+
+| | |
+| --- | --- |
+| **What** | External action uses mutable ref |
+| **Why** | Tags/branches can be retargeted |
+| **Looks for** | uses: org/action@v1 / @main without 40-char SHA |
+| **Stays quiet when** | Full commit SHA (optional version comment) |
+| **Remediation** | Pin third-party actions to SHAs |
+
+### `gha.permissions.write-all`
+
+| | |
+| --- | --- |
+| **What** | Workflow grants write-all token permissions |
+| **Why** | Amplifies any injection |
+| **Looks for** | permissions: write-all |
+| **Stays quiet when** | Default read; narrow write on release jobs |
+| **Remediation** | Least-privilege GITHUB_TOKEN |
+
+### `gha.permissions.contents-write-on-pr`
+
+| | |
+| --- | --- |
+| **What** | contents: write on pull_request |
+| **Why** | Fork PRs may push with elevated token in some setups |
+| **Looks for** | contents write on PR-triggered jobs |
+| **Stays quiet when** | Read-only on PR; write only on trusted events |
+| **Remediation** | Split privileged jobs |
+
+### `gha.self-hosted.untrusted`
+
+| | |
+| --- | --- |
+| **What** | Untrusted code on self-hosted runner |
+| **Why** | Persistent runners retain secrets/state |
+| **Looks for** | self-hosted + untrusted PR code |
+| **Stays quiet when** | Ephemeral runners or trusted events only |
+| **Remediation** | Do not run fork PR code on persistent self-hosted |
+
+### `gha.runs-on.expression`
+
+| | |
+| --- | --- |
+| **What** | Dynamic runs-on expression |
+| **Why** | Attacker may influence runner labels |
+| **Looks for** | runs-on from untrusted expressions |
+| **Stays quiet when** | Static labels |
+| **Remediation** | Hard-code runner labels |
