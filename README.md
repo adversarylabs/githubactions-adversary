@@ -20,3 +20,7 @@ adversary pack --check .
 ## Automatic detection
 
 `adversary auto` selects the github-actions adversary when changes include `.github/workflows/*.yml` or `.github/workflows/*.yaml`, plus the other domain-specific patterns declared in `adversary.yaml`. Unrelated changes do not select it.
+
+## Issue catalog
+
+What this adversary targets (P0 / P1 / LLM-only priorities, detection notes, and public pattern references) is documented in [docs/issue-catalog.md](docs/issue-catalog.md).
