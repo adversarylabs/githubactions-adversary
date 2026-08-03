@@ -1,4 +1,4 @@
-import { readFile, readdir } from "node:fs/promises";
+import { readdir } from "node:fs/promises";
 import { join, sep } from "node:path";
 import { detectCiSecurityIssues, GHA_RULE_IDS } from "./ci-security-core.js";
 import { observationFor } from "./rules.js";
@@ -8,19 +8,14 @@ const SKIPPED = new Set([".adversary", ".git", ".hg", ".next", ".svn", "coverage
 const MAX_FILES = 5000;
 const byId = new Map(spec.rules.map((rule) => [rule.id, rule]));
 export async function analyzeRepository(ctx) {
+    // Full tree for existence/context checks; content uses CLI/SDK review scope.
     const allPaths = await walk(ctx.repoPath);
-    const candidatePaths = allPaths.filter((path) => spec.files.some((glob) => matchesGlob(path, glob))).sort();
-    const sources = [];
-    for (const path of candidatePaths) {
-        try {
-            const source = await readFile(join(ctx.repoPath, path), "utf8");
-            if (!source.includes("\0"))
-                sources.push({ path, source });
-        }
-        catch {
-            // ignore unreadable files
-        }
-    }
+    const scoped = await ctx.loadInScopeSources({
+        include: (path) => !path.split("/").some((segment) => SKIPPED.has(segment)) &&
+            spec.files.some((glob) => matchesGlob(path, glob)),
+        limit: MAX_FILES,
+    });
+    const sources = scoped.map((file) => ({ path: file.path, source: file.content }));
     ctx.summary.files_scanned = sources.length;
     const detections = [];
     for (const file of sources) {
