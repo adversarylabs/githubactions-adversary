@@ -182,6 +182,27 @@ export declare const spec: {
             }];
         };
     }, {
+        readonly id: "gha.custom-runner.missing-timeout";
+        readonly title: "Long-running custom-runner job has no timeout";
+        readonly summary: "Long-running custom-runner job can run for GitHub's six-hour default";
+        readonly category: "reliability";
+        readonly severity: "medium";
+        readonly confidence: "high";
+        readonly whyItMatters: "A stuck build, packaging, or release job can occupy a scarce custom runner for GitHub's six-hour default.";
+        readonly impact: "Hung work wastes runner capacity and can block queued release or integration work.";
+        readonly recommendation: "Set a job-level timeout-minutes value based on observed runtime plus reasonable headroom.";
+        readonly complexity: "trivial";
+        readonly tags: ["reliability", "timeout", "custom-runner"];
+        readonly match: {
+            readonly kind: "content";
+            readonly files: [".github/workflows/*.yml", ".github/workflows/*.yaml"];
+            readonly pattern: {
+                readonly pattern: "runs-on\\s*:";
+                readonly flags: "i";
+            };
+            readonly requires: [];
+        };
+    }, {
         readonly id: "gha.runs-on.expression";
         readonly title: "runs-on takes an untrusted expression";
         readonly summary: "Runner label derived from an expression";

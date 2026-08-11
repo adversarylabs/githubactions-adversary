@@ -82,3 +82,15 @@ Regression entry: [`test/`](test/).
 | **Looks for** | runs-on from untrusted expressions |
 | **Stays quiet when** | Static labels |
 | **Remediation** | Hard-code runner labels |
+
+## Medium
+
+### `gha.custom-runner.missing-timeout`
+
+| | |
+| --- | --- |
+| **What** | Long-running build, packaging, release, or integration job has no job timeout on a custom runner |
+| **Why** | A stuck job can occupy scarce runner capacity for GitHub's six-hour default |
+| **Looks for** | Long-running signals such as ARM/cross-compilation, multi-arch, QEMU/buildx, packaging, publishing, or integration/e2e on self-hosted or custom runner labels without `timeout-minutes` |
+| **Stays quiet when** | Any job timeout is set; the job is short; or the job uses a GitHub-hosted runner |
+| **Remediation** | Set `timeout-minutes` from observed runtime plus reasonable headroom |
