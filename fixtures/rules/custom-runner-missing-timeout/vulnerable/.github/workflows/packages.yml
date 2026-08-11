@@ -1,0 +1,11 @@
+name: Packages
+
+on:
+  push:
+
+jobs:
+  build-arm-unknown-linux-gnueabi-packages:
+    name: Build ARM Linux packages
+    runs-on: [linux, release-builder]
+    steps:
+      - run: make package-arm-unknown-linux-gnueabi-all

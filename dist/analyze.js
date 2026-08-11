@@ -1,6 +1,7 @@
 import { readdir } from "node:fs/promises";
 import { join, sep } from "node:path";
 import { detectCiSecurityIssues, GHA_RULE_IDS } from "./ci-security-core.js";
+import { detectMissingLongRunningJobTimeouts } from "./job-timeouts.js";
 import { observationFor } from "./rules.js";
 import { runModelGithubActionsReview } from "./model-review.js";
 import { spec } from "./spec.js";
@@ -34,6 +35,12 @@ export async function analyzeRepository(ctx) {
                 label: hit.label,
                 data: hit.data,
             });
+        }
+        const timeoutRule = byId.get("gha.custom-runner.missing-timeout");
+        if (timeoutRule !== undefined) {
+            for (const hit of detectMissingLongRunningJobTimeouts(file.path, file.source)) {
+                detections.push({ rule: timeoutRule, ...hit });
+            }
         }
     }
     detections.sort((a, b) => a.rule.id.localeCompare(b.rule.id) || a.file.localeCompare(b.file) || a.line - b.line || a.label.localeCompare(b.label));

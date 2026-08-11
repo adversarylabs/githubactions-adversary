@@ -1,0 +1,29 @@
+name: Packages
+
+on:
+  push:
+
+jobs:
+  build-arm-unknown-linux-gnueabi-packages:
+    name: Build ARM Linux packages
+    runs-on: [linux, release-builder]
+    timeout-minutes: 60
+    steps:
+      - run: make package-arm-unknown-linux-gnueabi-all
+
+  lint:
+    runs-on: custom-lint-runner
+    steps:
+      - run: npm run lint
+
+  build-arm-on-github-hosted:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - run: make package
+
+  integration-with-dynamic-runner:
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - run: npm run integration
+
+timeout-minutes: this-is-not-inside-a-job

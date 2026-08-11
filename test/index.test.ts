@@ -6,7 +6,7 @@ import { createApp } from "../src/index.ts";
 const fixture = (name: string) => new URL(`../fixtures/${name}`, import.meta.url).pathname;
 const review = (name: string, raw = false) => createApp().run({ input: { source: { path: fixture(name) } }, includeRawObservations: raw });
 
-/** P0 catalog rules: fixture key → rule id */
+/** Catalog rules: fixture key → rule id */
 const ruleCases = [
   { key: "unpinned-action", id: "gha.action.unpinned-tag" },
   { key: "write-all", id: "gha.permissions.write-all" },
@@ -14,10 +14,11 @@ const ruleCases = [
   { key: "script-injection", id: "gha.script-injection.context" },
   { key: "self-hosted-untrusted", id: "gha.self-hosted.untrusted" },
   { key: "contents-write-on-pr", id: "gha.permissions.contents-write-on-pr" },
+  { key: "custom-runner-missing-timeout", id: "gha.custom-runner.missing-timeout" },
   { key: "runs-on-expression", id: "gha.runs-on.expression" },
 ] as const;
 
-test("every P0 rule has focused vulnerable and clean coverage", async () => {
+test("every catalog rule has focused vulnerable and clean coverage", async () => {
   for (const rule of ruleCases) {
     const vulnerable = await review(`rules/${rule.key}/vulnerable`, true);
     assert.equal(
@@ -33,6 +34,18 @@ test("every P0 rule has focused vulnerable and clean coverage", async () => {
       `${rule.id} flagged its clean fixture`,
     );
   }
+});
+
+test("custom-runner timeout finding names the affected workflow job and runner", async () => {
+  const output = await review("rules/custom-runner-missing-timeout/vulnerable", true);
+  const finding = output.findings.find((item) => item.ruleId === "gha.custom-runner.missing-timeout");
+  assert.ok(finding);
+  assert.match(finding.summary, /six-hour default/i);
+
+  const observation = output.rawObservations?.find((item) => item.ruleId === "gha.custom-runner.missing-timeout");
+  assert.equal(observation?.location?.file, ".github/workflows/packages.yml");
+  assert.equal(observation?.evidence?.job, "build-arm-unknown-linux-gnueabi-packages");
+  assert.equal(observation?.evidence?.runner, "[linux, release-builder]");
 });
 
 test("accepts a repository without applicable configuration", async () => {

@@ -2,6 +2,7 @@ import { readFile, readdir } from "node:fs/promises";
 import { join, sep } from "node:path";
 import { type RuleContext } from "@adversarylabs/sdk";
 import { detectCiSecurityIssues, GHA_RULE_IDS } from "./ci-security-core.js";
+import { detectMissingLongRunningJobTimeouts } from "./job-timeouts.js";
 import { observationFor } from "./rules.js";
 import { runModelGithubActionsReview } from "./model-review.js";
 import { spec, type RuleSpec } from "./spec.js";
@@ -41,6 +42,12 @@ export async function analyzeRepository(ctx: RuleContext): Promise<void> {
         label: hit.label,
         data: hit.data,
       });
+    }
+    const timeoutRule = byId.get("gha.custom-runner.missing-timeout");
+    if (timeoutRule !== undefined) {
+      for (const hit of detectMissingLongRunningJobTimeouts(file.path, file.source)) {
+        detections.push({ rule: timeoutRule, ...hit });
+      }
     }
   }
 
