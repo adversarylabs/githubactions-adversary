@@ -1,5 +1,5 @@
 name: ci/github-actions
-version: 0.0.11
+version: 0.0.12
 description: Reviews GitHub Actions workflows for security, supply-chain, and reliability defects.
 
 triggers:
