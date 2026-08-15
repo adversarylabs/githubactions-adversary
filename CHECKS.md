@@ -94,3 +94,13 @@ Regression entry: [`test/`](test/).
 | **Looks for** | Long-running signals such as ARM/cross-compilation, multi-arch, QEMU/buildx, packaging, publishing, or integration/e2e on self-hosted or custom runner labels without `timeout-minutes` |
 | **Stays quiet when** | Any job timeout is set; the job is short; or the job uses a GitHub-hosted runner |
 | **Remediation** | Set `timeout-minutes` from observed runtime plus reasonable headroom |
+
+### `gha.step.stale-output-reference`
+
+| | |
+| --- | --- |
+| **What** | A changed workflow still references `steps.<id>.outputs.<key>` after that output disappeared |
+| **Why** | The later step receives an empty value, so tagging, signing, or artifact archival can fail |
+| **Looks for** | A modified `.github/workflows` file whose previous revision declared or owned that step output, while the current file still contains the exact `steps.<id>.outputs.<key>` expression |
+| **Stays quiet when** | No remaining reference exists; the step still exists without an `outputs:` map (opaque `GITHUB_OUTPUT` producer); all references were updated with a rename; the line is a full-line comment; or the file is not a changed workflow |
+| **Remediation** | Update every remaining `steps.<id>.outputs.<key>` use when deleting a step or renaming an output key |

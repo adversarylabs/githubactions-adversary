@@ -5,6 +5,7 @@ import { promisify } from "node:util";
 import { type RuleContext } from "@adversarylabs/sdk";
 import { detectCiSecurityIssues, GHA_RULE_IDS } from "./ci-security-core.js";
 import { detectMissingLongRunningJobTimeouts } from "./job-timeouts.js";
+import { detectStaleStepOutputs } from "./stale-step-outputs.js";
 import { observationFor } from "./rules.js";
 import { runModelGithubActionsReview } from "./model-review.js";
 import { spec, type RuleSpec } from "./spec.js";
@@ -16,6 +17,7 @@ const execute = promisify(execFile);
 interface SourceFile {
   path: string;
   source: string;
+  previousSource?: string;
   changedLines: Set<number>;
   status: "added" | "modified" | "repository";
 }
@@ -49,6 +51,7 @@ export async function analyzeRepository(ctx: RuleContext): Promise<void> {
     sources.push({
       path: file.path,
       source: file.content,
+      previousSource: change.previousSource,
       changedLines: change.changedLines,
       status: change.status,
     });
@@ -77,6 +80,12 @@ export async function analyzeRepository(ctx: RuleContext): Promise<void> {
       for (const hit of detectMissingLongRunningJobTimeouts(file.path, file.source)) {
         if (!isEligibleLine(file, hit.line)) continue;
         detections.push({ rule: timeoutRule, ...hit });
+      }
+    }
+    const staleOutputRule = byId.get("gha.step.stale-output-reference");
+    if (staleOutputRule !== undefined && file.status === "modified") {
+      for (const hit of detectStaleStepOutputs(file.path, file.source, file.previousSource)) {
+        detections.push({ rule: staleOutputRule, ...hit });
       }
     }
   }
@@ -117,7 +126,7 @@ function isEligibleLine(file: SourceFile, line: number): boolean {
 async function changedSource(
   ctx: RuleContext,
   path: string,
-): Promise<Pick<SourceFile, "changedLines" | "status">> {
+): Promise<Pick<SourceFile, "changedLines" | "status" | "previousSource">> {
   const base = ctx.change?.baseRef;
   if (base === undefined || !(await existsAtRevision(ctx.repoPath, base, path))) {
     return { changedLines: new Set<number>(), status: "added" };
@@ -128,7 +137,13 @@ async function changedSource(
   if (head !== undefined && !ctx.change?.worktree) args.push(head);
   args.push("--", path);
   const patch = await gitOutput(ctx.repoPath, args);
-  return { changedLines: changedLineNumbers(patch), status: "modified" };
+  let previousSource: string | undefined;
+  try {
+    previousSource = await gitOutput(ctx.repoPath, ["show", `${base}:${path}`]);
+  } catch {
+    previousSource = undefined;
+  }
+  return { changedLines: changedLineNumbers(patch), status: "modified", previousSource };
 }
 
 async function existsAtRevision(repoPath: string, revision: string, path: string): Promise<boolean> {
