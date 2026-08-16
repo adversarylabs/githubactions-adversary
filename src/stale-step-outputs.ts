@@ -9,7 +9,8 @@ export interface StaleStepOutputHit {
 }
 
 interface StepOutputs {
-  declared: Set<string> | "opaque";
+  declared: Set<string>;
+  opaque: boolean;
 }
 
 const REFERENCE = /steps\.([A-Za-z_][\w-]*)\.outputs\.([A-Za-z_][\w-]*)/g;
@@ -61,7 +62,7 @@ function outputRemoved(
 }
 
 function emittedKey(step: StepOutputs, key: string): boolean {
-  return step.declared === "opaque" || step.declared.has(key);
+  return step.opaque || step.declared.has(key);
 }
 
 function collectStepOutputs(source: string): Map<string, StepOutputs> {
@@ -91,24 +92,39 @@ function collectStepOutputs(source: string): Map<string, StepOutputs> {
         if (step === undefined) continue;
         const id = step.id;
         if (typeof id !== "string" || id.length === 0) continue;
-        const outputs = asRecord(step.outputs);
-        const declared = outputs === undefined
-          ? "opaque" as const
-          : new Set(Object.keys(outputs).filter((key) => key.length > 0));
+        const discovered = discoverStepOutputs(step);
         const existing = steps.get(id);
         if (existing === undefined) {
-          steps.set(id, { declared });
+          steps.set(id, discovered);
           continue;
         }
-        if (existing.declared === "opaque" || declared === "opaque") {
-          existing.declared = "opaque";
-        } else {
-          for (const key of declared) existing.declared.add(key);
-        }
+        existing.opaque ||= discovered.opaque;
+        for (const key of discovered.declared) existing.declared.add(key);
       }
     }
   }
   return steps;
+}
+
+function discoverStepOutputs(step: Record<string, unknown>): StepOutputs {
+  // Reusable actions own their output contract outside the workflow. Treat
+  // those producers as opaque so a version or input edit cannot look like an
+  // output deletion without action metadata.
+  if (typeof step.uses === "string") return { declared: new Set(), opaque: true };
+  if (typeof step.run !== "string") return { declared: new Set(), opaque: false };
+
+  const declared = new Set<string>();
+  let opaque = false;
+  for (const line of step.run.split(/\r?\n/)) {
+    if (!/(?:\$GITHUB_OUTPUT|\$\{GITHUB_OUTPUT\})/.test(line)) continue;
+    const match = /["']?([A-Za-z_][\w-]*)(?:=|<<)[^\n]*(?:\$GITHUB_OUTPUT|\$\{GITHUB_OUTPUT\})/.exec(line);
+    if (match?.[1] === undefined) {
+      opaque = true;
+    } else {
+      declared.add(match[1]);
+    }
+  }
+  return { declared, opaque };
 }
 
 function collectReferences(source: string): Array<{ stepId: string; key: string; line: number; snippet: string }> {

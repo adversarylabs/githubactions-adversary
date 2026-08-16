@@ -3647,12 +3647,7 @@ var require_fast_uri = __commonJS({
     }
     function resolve3(baseURI, relativeURI, options) {
       const schemelessOptions = options ? Object.assign({ scheme: "null" }, options) : { scheme: "null" };
-      const { parsed: baseParsed, malformedAuthorityOrPort: baseMalformed } = parseWithStatus(baseURI, schemelessOptions);
-      const { parsed: relativeParsed, malformedAuthorityOrPort: relativeMalformed } = parseWithStatus(relativeURI, schemelessOptions);
-      if (baseMalformed || relativeMalformed) {
-        throw new Error(baseParsed.error || relativeParsed.error || "URI is malformed.");
-      }
-      const resolved = resolveComponent(baseParsed, relativeParsed, schemelessOptions, true);
+      const resolved = resolveComponent(parse(baseURI, schemelessOptions), parse(relativeURI, schemelessOptions), schemelessOptions, true);
       schemelessOptions.skipEscape = true;
       return serialize(resolved, schemelessOptions);
     }
@@ -3778,7 +3773,6 @@ var require_fast_uri = __commonJS({
     }
     var URI_PARSE = /^(?:([^#/:?]+):)?(?:\/\/((?:([^#/?@]*)@)?(\[[^#/?\]]+\]|[^#/:?]*)(?::(\d*))?))?([^#?]*)(?:\?([^#]*))?(?:#((?:.|[\n\r])*))?/u;
     var AUTHORITY_PREFIX = /^(?:[^#/:?]+:)?\/\/([^/?#]*)/;
-    var AUTHORITY_INTRODUCER_REGION = /^(?:[^#/:?]+:)?([/\\\t\n\r]*)/;
     function getParseError(parsed, matches) {
       if (matches[2] !== void 0 && parsed.path && parsed.path[0] !== "/") {
         return 'URI path must start with "/" when authority is present.';
@@ -3812,20 +3806,6 @@ var require_fast_uri = __commonJS({
       if (authorityMatch !== null && authorityMatch[1].indexOf("\\") !== -1) {
         parsed.error = "URI authority must not contain a literal backslash.";
         malformedAuthorityOrPort = true;
-      }
-      const introducerMatch = uri.match(AUTHORITY_INTRODUCER_REGION);
-      if (introducerMatch !== null) {
-        const region = introducerMatch[1];
-        const normalizedRegion = region.replace(/[\t\n\r]/g, "");
-        if (normalizedRegion.length >= 2) {
-          if (normalizedRegion.slice(0, 2) !== "//") {
-            parsed.error = parsed.error || "URI authority must not contain a literal backslash.";
-            malformedAuthorityOrPort = true;
-          } else if (region.length !== normalizedRegion.length) {
-            parsed.error = parsed.error || "URI authority introducer must not contain whitespace.";
-            malformedAuthorityOrPort = true;
-          }
-        }
       }
       const matches = uri.match(URI_PARSE);
       if (matches) {
@@ -17354,7 +17334,7 @@ function outputRemoved(previousSteps, currentSteps, stepId, key) {
   return !emittedKey(current, key);
 }
 function emittedKey(step, key) {
-  return step.declared === "opaque" || step.declared.has(key);
+  return step.opaque || step.declared.has(key);
 }
 function collectStepOutputs(source) {
   const steps = /* @__PURE__ */ new Map();
@@ -17383,22 +17363,34 @@ function collectStepOutputs(source) {
         if (step === void 0) continue;
         const id = step.id;
         if (typeof id !== "string" || id.length === 0) continue;
-        const outputs = asRecord(step.outputs);
-        const declared = outputs === void 0 ? "opaque" : new Set(Object.keys(outputs).filter((key) => key.length > 0));
+        const discovered = discoverStepOutputs(step);
         const existing = steps.get(id);
         if (existing === void 0) {
-          steps.set(id, { declared });
+          steps.set(id, discovered);
           continue;
         }
-        if (existing.declared === "opaque" || declared === "opaque") {
-          existing.declared = "opaque";
-        } else {
-          for (const key of declared) existing.declared.add(key);
-        }
+        existing.opaque ||= discovered.opaque;
+        for (const key of discovered.declared) existing.declared.add(key);
       }
     }
   }
   return steps;
+}
+function discoverStepOutputs(step) {
+  if (typeof step.uses === "string") return { declared: /* @__PURE__ */ new Set(), opaque: true };
+  if (typeof step.run !== "string") return { declared: /* @__PURE__ */ new Set(), opaque: false };
+  const declared = /* @__PURE__ */ new Set();
+  let opaque = false;
+  for (const line of step.run.split(/\r?\n/)) {
+    if (!/(?:\$GITHUB_OUTPUT|\$\{GITHUB_OUTPUT\})/.test(line)) continue;
+    const match = /["']?([A-Za-z_][\w-]*)(?:=|<<)[^\n]*(?:\$GITHUB_OUTPUT|\$\{GITHUB_OUTPUT\})/.exec(line);
+    if (match?.[1] === void 0) {
+      opaque = true;
+    } else {
+      declared.add(match[1]);
+    }
+  }
+  return { declared, opaque };
 }
 function collectReferences(source) {
   const references = [];

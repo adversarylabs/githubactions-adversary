@@ -68,11 +68,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - id: meta
-        run: echo "tags=v1" >> "$GITHUB_OUTPUT"
+        run: printf '%s=%s\\n' "$OUTPUT_NAME" v1 >> "$GITHUB_OUTPUT"
       - run: docker build --tag \${{ steps.meta.outputs.tags }} .
 `;
   const repo = await gitRepo(previous);
-  await writeFile(join(repo, path), previous.replace("echo \"tags=v1\"", "echo \"tags=v2\""));
+  await writeFile(join(repo, path), previous.replace("v1 >>", "v2 >>"));
   const result = await changedReview(repo);
   assert.equal(result.findings.some((finding) => finding.ruleId === ruleId), false);
 });
@@ -86,9 +86,7 @@ function workflow(options: {
   const key = options.outputKey ?? "tags";
   const meta = options.includeMeta
     ? `      - id: meta
-        run: echo meta
-        outputs:
-          ${key}: v1
+        run: echo "${key}=v1" >> "$GITHUB_OUTPUT"
 `
     : "";
   const use = options.ref === undefined
