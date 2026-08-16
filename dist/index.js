@@ -3647,12 +3647,7 @@ var require_fast_uri = __commonJS({
     }
     function resolve3(baseURI, relativeURI, options) {
       const schemelessOptions = options ? Object.assign({ scheme: "null" }, options) : { scheme: "null" };
-      const { parsed: baseParsed, malformedAuthorityOrPort: baseMalformed } = parseWithStatus(baseURI, schemelessOptions);
-      const { parsed: relativeParsed, malformedAuthorityOrPort: relativeMalformed } = parseWithStatus(relativeURI, schemelessOptions);
-      if (baseMalformed || relativeMalformed) {
-        throw new Error(baseParsed.error || relativeParsed.error || "URI is malformed.");
-      }
-      const resolved = resolveComponent(baseParsed, relativeParsed, schemelessOptions, true);
+      const resolved = resolveComponent(parse(baseURI, schemelessOptions), parse(relativeURI, schemelessOptions), schemelessOptions, true);
       schemelessOptions.skipEscape = true;
       return serialize(resolved, schemelessOptions);
     }
@@ -3778,7 +3773,6 @@ var require_fast_uri = __commonJS({
     }
     var URI_PARSE = /^(?:([^#/:?]+):)?(?:\/\/((?:([^#/?@]*)@)?(\[[^#/?\]]+\]|[^#/:?]*)(?::(\d*))?))?([^#?]*)(?:\?([^#]*))?(?:#((?:.|[\n\r])*))?/u;
     var AUTHORITY_PREFIX = /^(?:[^#/:?]+:)?\/\/([^/?#]*)/;
-    var AUTHORITY_INTRODUCER_REGION = /^(?:[^#/:?]+:)?([/\\\t\n\r]*)/;
     function getParseError(parsed, matches) {
       if (matches[2] !== void 0 && parsed.path && parsed.path[0] !== "/") {
         return 'URI path must start with "/" when authority is present.';
@@ -3812,20 +3806,6 @@ var require_fast_uri = __commonJS({
       if (authorityMatch !== null && authorityMatch[1].indexOf("\\") !== -1) {
         parsed.error = "URI authority must not contain a literal backslash.";
         malformedAuthorityOrPort = true;
-      }
-      const introducerMatch = uri.match(AUTHORITY_INTRODUCER_REGION);
-      if (introducerMatch !== null) {
-        const region = introducerMatch[1];
-        const normalizedRegion = region.replace(/[\t\n\r]/g, "");
-        if (normalizedRegion.length >= 2) {
-          if (normalizedRegion.slice(0, 2) !== "//") {
-            parsed.error = parsed.error || "URI authority must not contain a literal backslash.";
-            malformedAuthorityOrPort = true;
-          } else if (region.length !== normalizedRegion.length) {
-            parsed.error = parsed.error || "URI authority introducer must not contain whitespace.";
-            malformedAuthorityOrPort = true;
-          }
-        }
       }
       const matches = uri.match(URI_PARSE);
       if (matches) {
@@ -14370,7 +14350,7 @@ var require_public_api = __commonJS({
       const lineCounter$1 = options.lineCounter || prettyErrors && new lineCounter.LineCounter() || null;
       return { lineCounter: lineCounter$1, prettyErrors };
     }
-    function parseAllDocuments2(source, options = {}) {
+    function parseAllDocuments3(source, options = {}) {
       const { lineCounter: lineCounter2, prettyErrors } = parseOptions(options);
       const parser$1 = new parser.Parser(lineCounter2?.addNewLine);
       const composer$1 = new composer.Composer(options);
@@ -14445,7 +14425,7 @@ var require_public_api = __commonJS({
       return new Document.Document(value, _replacer, options).toString(options);
     }
     exports.parse = parse;
-    exports.parseAllDocuments = parseAllDocuments2;
+    exports.parseAllDocuments = parseAllDocuments3;
     exports.parseDocument = parseDocument;
     exports.stringify = stringify;
   }
@@ -17320,6 +17300,121 @@ function isCustomRunner(labels, expression) {
   return !GITHUB_HOSTED_RUNNER.test(labels[0] ?? "");
 }
 
+// src/stale-step-outputs.ts
+var import_yaml2 = __toESM(require_dist(), 1);
+var REFERENCE = /steps\.([A-Za-z_][\w-]*)\.outputs\.([A-Za-z_][\w-]*)/g;
+function detectStaleStepOutputs(file, current, previous) {
+  if (previous === void 0) return [];
+  const previousSteps = collectStepOutputs(previous);
+  if (previousSteps.size === 0) return [];
+  const currentSteps = collectStepOutputs(current);
+  const hits = [];
+  const seen = /* @__PURE__ */ new Set();
+  for (const reference of collectReferences(current)) {
+    if (!outputRemoved(previousSteps, currentSteps, reference.stepId, reference.key)) continue;
+    const key = `${reference.line}:${reference.stepId}:${reference.key}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    hits.push({
+      file,
+      line: reference.line,
+      snippet: reference.snippet,
+      label: `Workflow still references steps.${reference.stepId}.outputs.${reference.key} after that output disappeared`,
+      data: { stepId: reference.stepId, outputKey: reference.key }
+    });
+  }
+  return hits;
+}
+function outputRemoved(previousSteps, currentSteps, stepId, key) {
+  const previous = previousSteps.get(stepId);
+  if (previous === void 0) return false;
+  if (!emittedKey(previous, key)) return false;
+  const current = currentSteps.get(stepId);
+  if (current === void 0) return true;
+  return !emittedKey(current, key);
+}
+function emittedKey(step, key) {
+  return step.opaque || step.declared.has(key);
+}
+function collectStepOutputs(source) {
+  const steps = /* @__PURE__ */ new Map();
+  let documents;
+  try {
+    documents = (0, import_yaml2.parseAllDocuments)(source, { prettyErrors: false, uniqueKeys: true });
+  } catch {
+    return steps;
+  }
+  for (const document of documents) {
+    if (document.errors.length > 0) continue;
+    let manifest;
+    try {
+      manifest = asRecord(document.toJS({ maxAliasCount: 100 }));
+    } catch {
+      continue;
+    }
+    if (manifest === void 0) continue;
+    const jobs = asRecord(manifest.jobs);
+    if (jobs === void 0) continue;
+    for (const job of Object.values(jobs)) {
+      const list = asRecord(job)?.steps;
+      if (!Array.isArray(list)) continue;
+      for (const raw of list) {
+        const step = asRecord(raw);
+        if (step === void 0) continue;
+        const id = step.id;
+        if (typeof id !== "string" || id.length === 0) continue;
+        const discovered = discoverStepOutputs(step);
+        const existing = steps.get(id);
+        if (existing === void 0) {
+          steps.set(id, discovered);
+          continue;
+        }
+        existing.opaque ||= discovered.opaque;
+        for (const key of discovered.declared) existing.declared.add(key);
+      }
+    }
+  }
+  return steps;
+}
+function discoverStepOutputs(step) {
+  if (typeof step.uses === "string") return { declared: /* @__PURE__ */ new Set(), opaque: true };
+  if (typeof step.run !== "string") return { declared: /* @__PURE__ */ new Set(), opaque: false };
+  const declared = /* @__PURE__ */ new Set();
+  let opaque = false;
+  for (const line of step.run.split(/\r?\n/)) {
+    if (!/(?:\$GITHUB_OUTPUT|\$\{GITHUB_OUTPUT\})/.test(line)) continue;
+    const match = /["']?([A-Za-z_][\w-]*)(?:=|<<)[^\n]*(?:\$GITHUB_OUTPUT|\$\{GITHUB_OUTPUT\})/.exec(line);
+    if (match?.[1] === void 0) {
+      opaque = true;
+    } else {
+      declared.add(match[1]);
+    }
+  }
+  return { declared, opaque };
+}
+function collectReferences(source) {
+  const references = [];
+  const lines = source.split(/\r?\n/);
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index] ?? "";
+    if (/^\s*#/.test(line)) continue;
+    REFERENCE.lastIndex = 0;
+    let match;
+    while ((match = REFERENCE.exec(line)) !== null) {
+      references.push({
+        stepId: match[1] ?? "",
+        key: match[2] ?? "",
+        line: index + 1,
+        snippet: line.trim()
+      });
+    }
+  }
+  return references;
+}
+function asRecord(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value) ? value : void 0;
+}
+
 // src/spec.ts
 var workflowFiles = [".github/workflows/*.yml", ".github/workflows/*.yaml"];
 var spec = {
@@ -17490,6 +17585,25 @@ var spec = {
           pattern: "runs-on:\\s*\\$\\{\\{[^}]+\\}\\}",
           flags: "i"
         },
+        requires: []
+      }
+    },
+    {
+      id: "gha.step.stale-output-reference",
+      title: "Workflow references a removed step output",
+      summary: "A later step still reads a step output that this change removed or renamed",
+      category: "reliability",
+      severity: "high",
+      confidence: "high",
+      whyItMatters: "Downstream steps receive an empty value, so tagging, signing, or artifact archival can silently fail.",
+      impact: "Releases may ship untagged images or skip required artifacts.",
+      recommendation: "Update or delete every steps.<id>.outputs.<key> reference when removing or renaming that output.",
+      complexity: "small",
+      tags: ["reliability", "step-outputs"],
+      match: {
+        kind: "content",
+        files: [...workflowFiles],
+        pattern: { pattern: "steps\\.[\\w-]+\\.outputs\\.[\\w-]+", flags: "i" },
         requires: []
       }
     }
@@ -17736,6 +17850,7 @@ async function analyzeRepository(ctx) {
     sources.push({
       path: file.path,
       source: file.content,
+      previousSource: change.previousSource,
       changedLines: change.changedLines,
       status: change.status
     });
@@ -17763,6 +17878,12 @@ async function analyzeRepository(ctx) {
       for (const hit of detectMissingLongRunningJobTimeouts(file.path, file.source)) {
         if (!isEligibleLine(file, hit.line)) continue;
         detections.push({ rule: timeoutRule, ...hit });
+      }
+    }
+    const staleOutputRule = byId2.get("gha.step.stale-output-reference");
+    if (staleOutputRule !== void 0 && file.status === "modified") {
+      for (const hit of detectStaleStepOutputs(file.path, file.source, file.previousSource)) {
+        detections.push({ rule: staleOutputRule, ...hit });
       }
     }
   }
@@ -17805,7 +17926,13 @@ async function changedSource(ctx, path) {
   if (head !== void 0 && !ctx.change?.worktree) args.push(head);
   args.push("--", path);
   const patch = await gitOutput(ctx.repoPath, args);
-  return { changedLines: changedLineNumbers(patch), status: "modified" };
+  let previousSource;
+  try {
+    previousSource = await gitOutput(ctx.repoPath, ["show", `${base}:${path}`]);
+  } catch {
+    previousSource = void 0;
+  }
+  return { changedLines: changedLineNumbers(patch), status: "modified", previousSource };
 }
 async function existsAtRevision(repoPath, revision, path) {
   try {
@@ -17870,7 +17997,7 @@ function matchesGlob(path, glob) {
 
 // src/index.ts
 function createApp() {
-  const app = new Adversary({ name: "github-actions", version: "0.0.12", review: { maximumFindings: 8 } });
+  const app = new Adversary({ name: "github-actions", version: "0.0.13", review: { maximumFindings: 8 } });
   registerRules(app);
   app.rule("github-actions.review", async (ctx) => analyzeRepository(ctx));
   return app;
