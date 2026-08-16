@@ -1,44 +1,21 @@
-# ci/github-actions
+# GitHub Actions adversary
 
-**ci/github-actions** reviews GitHub Actions workflows for **security, supply-chain, and reliability** defects: unpinned actions, over-broad tokens, pwn-request patterns, script injection, and unsafe self-hosted runners.
+Reviews GitHub Actions workflows for security, supply-chain, and reliability defects.
 
-It is a **CI security reviewer** for `.github/workflows`, not a general YAML linter. When it reports, a workflow can steal secrets or run untrusted code with privileged tokens.
+## Goals
 
-## What it does
+The adversary is designed to produce a small number of high-confidence,
+actionable findings grounded in concrete repository evidence. Its review should
+be deterministic where possible, explicit about impact, and quiet when the
+available evidence does not justify a finding.
 
-1. **Discovers** workflow files under `.github/workflows/`.
-2. **Runs deterministic detectors** with stable rule ids and file:line evidence.
-3. **Synthesizes a review** prioritizing critical privilege and injection issues.
-4. Optionally **enhances** with a model when provided.
+## Scope
 
-It never executes the scanned project as the product under review, never installs dependencies into it, and never needs network access to the target repository.
+It evaluates GitHub Actions workflow files for token authority, untrusted code paths, runner safety, action pinning, timeouts, and step wiring.
 
-## What it detects
+The complete detector or review inventory is maintained in
+[CHECKS.md](CHECKS.md).
 
-Every **shipped rule id**, severity, and short description lives in **[CHECKS.md](CHECKS.md)** — the audit surface for “what does this adversary look for?”
+## Boundaries
 
-Highlights:
-
-| Area | Examples |
-| --- | --- |
-| Supply chain | Actions pinned to tags/branches instead of full SHAs |
-| Permissions | `permissions: write-all`; contents write on PR |
-| Pwn-request | `pull_request_target` checking out PR head |
-| Injection | Untrusted `github.event` fields expanded in `run:` |
-| Runners | Untrusted code on self-hosted; dynamic `runs-on` expressions |
-
-### Ownership boundaries
-
-Other official adversaries own adjacent classes so findings stay non-duplicative:
-
-| Concern | Owned by |
-| --- | --- |
-| Depot-specific cache/runner concerns | [`ci/depot`](https://github.com/adversarylabs/depotci-adversary) |
-| Committed secrets in any file | [`security/secrets`](https://github.com/adversarylabs/secrets-adversary) |
-| Dockerfile supply chain | [`container/dockerfile`](https://github.com/adversarylabs/dockerfile-adversary) |
-
-## Precision stance
-
-- **High confidence** only for deterministic, evidence-backed patterns.
-- Clean fixtures must stay quiet; vulnerable fixtures must fire where graded fixtures exist.
-- Prefer missing a weak signal over a false positive on normal production code.
+It owns CI configuration in this platform domain. Application code, container definitions, and infrastructure resources remain with their specialist adversaries.
