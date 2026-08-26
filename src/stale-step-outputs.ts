@@ -1,4 +1,4 @@
-import { isMap, isScalar, isSeq, parseAllDocuments } from "yaml";
+import { isAlias, isMap, isScalar, isSeq, parseAllDocuments, type Document, type YAMLMap } from "yaml";
 
 export interface StaleStepOutputHit {
   file: string;
@@ -148,7 +148,16 @@ function collectJobs(source: string): Map<string, JobContract> {
     }
     const stepsNode = mapValue(jobNode, "steps");
     if (isSeq(stepsNode)) {
-      const stepMaps = stepsNode.items.filter(isMap);
+      const resolvedSteps = stepsNode.items.map((step) => ({
+        source: step,
+        map: resolveStepMap(step, documents[0]!),
+      }));
+      if (resolvedSteps.some((step) => isAlias(step.source) && step.map === undefined)) {
+        contract.valid = false;
+      }
+      const stepMaps = resolvedSteps
+        .map((step) => step.map)
+        .filter((step): step is YAMLMap => step !== undefined);
       const semanticKeys = stepMaps.map((step) => semanticNodeKey(step));
       const semanticCounts = new Map<string, number>();
       for (const key of semanticKeys) semanticCounts.set(key, (semanticCounts.get(key) ?? 0) + 1);
@@ -163,8 +172,9 @@ function collectJobs(source: string): Map<string, JobContract> {
         allIds.add(id);
       }
 
-      for (const [index, rawStep] of stepsNode.items.entries()) {
-        if (!isMap(rawStep)) continue;
+      for (const [index, resolvedStep] of resolvedSteps.entries()) {
+        const rawStep = resolvedStep.map;
+        if (rawStep === undefined) continue;
         if (conditionContainerIsStaticallyDisabled(rawStep)) continue;
         const idNode = mapValue(rawStep, "id");
         const id = scalarString(idNode);
@@ -210,6 +220,7 @@ function collectReferences(
     if (!isScalar(value) || value.range === undefined || value.range === null) return;
     const raw = source.slice(value.range[0], value.range[1]);
     const explicitRanges = bracedExpressionRanges(raw);
+    if (explicitRanges === undefined) return;
     const ranges = explicitRanges.length > 0
       ? explicitRanges
       : implicitExpression ? [implicitScalarExpressionRange(raw)] : [];
@@ -235,7 +246,7 @@ function collectReferences(
   return references;
 }
 
-function bracedExpressionRanges(raw: string): ExpressionRange[] {
+function bracedExpressionRanges(raw: string): ExpressionRange[] | undefined {
   const ranges: ExpressionRange[] = [];
   let cursor = 0;
   while (cursor < raw.length - 2) {
@@ -262,6 +273,10 @@ function bracedExpressionRanges(raw: string): ExpressionRange[] {
         quote = undefined;
         continue;
       }
+      // A second opener before the first expression closes is invalid GitHub
+      // expression syntax. Reject the whole scalar instead of treating the
+      // inner close as the outer boundary and manufacturing a live reference.
+      if (character === "$" && raw.startsWith("${{", index)) return undefined;
       if (character === "'" || character === '"') {
         quote = character;
         continue;
@@ -271,11 +286,55 @@ function bracedExpressionRanges(raw: string): ExpressionRange[] {
         break;
       }
     }
-    if (closing < 0) break;
+    if (closing < 0) return undefined;
     ranges.push({ start, end: closing });
     cursor = closing + 2;
   }
   return ranges;
+}
+
+function resolveStepMap(node: unknown, document: Document): YAMLMap | undefined {
+  if (isMap(node)) return node;
+  if (!isAlias(node)) return undefined;
+  try {
+    // Alias.resolve follows only a previously defined anchor. Reject missing,
+    // cyclic, scalar, and sequence targets; a workflow step must resolve to a
+    // mapping before any identity or expression is trusted.
+    const resolved = node.resolve(document);
+    return isMap(resolved) && aliasGraphIsValid(resolved, document) ? resolved : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function aliasGraphIsValid(
+  node: unknown,
+  document: Document,
+  visiting = new Set<unknown>(),
+  visited = new Set<unknown>(),
+): boolean {
+  if (isAlias(node)) {
+    let resolved;
+    try {
+      resolved = node.resolve(document);
+    } catch {
+      return false;
+    }
+    return resolved !== undefined && aliasGraphIsValid(resolved, document, visiting, visited);
+  }
+  if (isScalar(node)) return true;
+  if (!isMap(node) && !isSeq(node)) return false;
+  if (visiting.has(node)) return false;
+  if (visited.has(node)) return true;
+  visiting.add(node);
+  const valid = isMap(node)
+    ? node.items.every((pair) =>
+      aliasGraphIsValid(pair.key, document, visiting, visited) &&
+      aliasGraphIsValid(pair.value, document, visiting, visited))
+    : node.items.every((item) => aliasGraphIsValid(item, document, visiting, visited));
+  visiting.delete(node);
+  if (valid) visited.add(node);
+  return valid;
 }
 
 function implicitScalarExpressionRange(raw: string): ExpressionRange {

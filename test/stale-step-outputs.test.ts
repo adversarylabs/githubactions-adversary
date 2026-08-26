@@ -221,6 +221,75 @@ test("expression scanning resumes after a quoted-brace expression", async () => 
   assert.equal((await findings(previous, previous.replace(producer("meta"), ""))).length, 1);
 });
 
+test("malformed nested expression openers fail closed", async () => {
+  const consumer = `      - id: publish
+        run: echo \${{ github.ref && \${{ steps.meta.outputs.tags }}
+`;
+  const previous = workflow(producer("meta") + consumer, undefined);
+  assert.deepEqual(await findings(previous, previous.replace(producer("meta"), "")), []);
+});
+
+test("valid YAML step aliases preserve producer identity", async () => {
+  const prefix = `name: Release
+on: push
+jobs:
+  seed:
+    runs-on: ubuntu-latest
+    steps:
+      - &metadata
+        id: meta
+        uses: docker/metadata-action@v5
+  release:
+    runs-on: ubuntu-latest
+    steps:
+`;
+  const consumer = `      - id: publish
+        if: steps.meta.outputs.enabled
+        run: echo publish
+`;
+  const direct = prefix + producer("meta") + consumer;
+  const aliased = prefix + "      - *metadata\n" + consumer;
+  assert.deepEqual(await findings(direct, aliased), []);
+  assert.equal((await findings(aliased, prefix + consumer)).length, 1);
+});
+
+test("non-mapping and unresolved YAML step aliases fail closed", async () => {
+  const invalid = `name: Release
+on: push
+scalar: &metadata meta
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - *metadata
+      - id: publish
+        if: steps.meta.outputs.enabled
+        run: echo publish
+`;
+  assert.deepEqual(await findings(invalid, invalid.replace("scalar: &metadata meta\n", "")), []);
+});
+
+test("cyclic YAML step aliases fail closed", async () => {
+  const cyclic = `name: Release
+on: push
+template: &metadata
+  id: meta
+  uses: docker/metadata-action@v5
+  env:
+    SELF: *metadata
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - *metadata
+      - id: publish
+        if: steps.meta.outputs.enabled
+        run: echo publish
+`;
+  const removed = cyclic.replace("      - *metadata\n", "");
+  assert.deepEqual(await findings(cyclic, removed), []);
+});
+
 test("statically disabled producers and consumers do not establish live relationships", async () => {
   for (const condition of [
     "false",

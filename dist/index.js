@@ -7187,7 +7187,7 @@ var require_identity = __commonJS({
     var SCALAR = /* @__PURE__ */ Symbol.for("yaml.scalar");
     var SEQ = /* @__PURE__ */ Symbol.for("yaml.seq");
     var NODE_TYPE = /* @__PURE__ */ Symbol.for("yaml.node.type");
-    var isAlias = (node) => !!node && typeof node === "object" && node[NODE_TYPE] === ALIAS;
+    var isAlias2 = (node) => !!node && typeof node === "object" && node[NODE_TYPE] === ALIAS;
     var isDocument = (node) => !!node && typeof node === "object" && node[NODE_TYPE] === DOC;
     var isMap2 = (node) => !!node && typeof node === "object" && node[NODE_TYPE] === MAP;
     var isPair = (node) => !!node && typeof node === "object" && node[NODE_TYPE] === PAIR;
@@ -7222,7 +7222,7 @@ var require_identity = __commonJS({
     exports.SCALAR = SCALAR;
     exports.SEQ = SEQ;
     exports.hasAnchor = hasAnchor;
-    exports.isAlias = isAlias;
+    exports.isAlias = isAlias2;
     exports.isCollection = isCollection;
     exports.isDocument = isDocument;
     exports.isMap = isMap2;
@@ -17420,7 +17420,14 @@ function collectJobs2(source) {
     }
     const stepsNode = mapValue(jobNode, "steps");
     if ((0, import_yaml2.isSeq)(stepsNode)) {
-      const stepMaps = stepsNode.items.filter(import_yaml2.isMap);
+      const resolvedSteps = stepsNode.items.map((step) => ({
+        source: step,
+        map: resolveStepMap(step, documents[0])
+      }));
+      if (resolvedSteps.some((step) => (0, import_yaml2.isAlias)(step.source) && step.map === void 0)) {
+        contract.valid = false;
+      }
+      const stepMaps = resolvedSteps.map((step) => step.map).filter((step) => step !== void 0);
       const semanticKeys = stepMaps.map((step) => semanticNodeKey(step));
       const semanticCounts = /* @__PURE__ */ new Map();
       for (const key of semanticKeys) semanticCounts.set(key, (semanticCounts.get(key) ?? 0) + 1);
@@ -17431,8 +17438,9 @@ function collectJobs2(source) {
         if (allIds.has(id)) contract.valid = false;
         allIds.add(id);
       }
-      for (const [index, rawStep] of stepsNode.items.entries()) {
-        if (!(0, import_yaml2.isMap)(rawStep)) continue;
+      for (const [index, resolvedStep] of resolvedSteps.entries()) {
+        const rawStep = resolvedStep.map;
+        if (rawStep === void 0) continue;
         if (conditionContainerIsStaticallyDisabled(rawStep)) continue;
         const idNode = mapValue(rawStep, "id");
         const id = scalarString(idNode);
@@ -17471,6 +17479,7 @@ function collectReferences(node, source, implicitExpression = false) {
     if (!(0, import_yaml2.isScalar)(value) || value.range === void 0 || value.range === null) return;
     const raw = source.slice(value.range[0], value.range[1]);
     const explicitRanges = bracedExpressionRanges(raw);
+    if (explicitRanges === void 0) return;
     const ranges = explicitRanges.length > 0 ? explicitRanges : implicitExpression ? [implicitScalarExpressionRange(raw)] : [];
     for (const range of ranges) {
       if (range.end <= range.start) continue;
@@ -17520,6 +17529,7 @@ function bracedExpressionRanges(raw) {
         quote = void 0;
         continue;
       }
+      if (character === "$" && raw.startsWith("${{", index)) return void 0;
       if (character === "'" || character === '"') {
         quote = character;
         continue;
@@ -17529,11 +17539,41 @@ function bracedExpressionRanges(raw) {
         break;
       }
     }
-    if (closing < 0) break;
+    if (closing < 0) return void 0;
     ranges.push({ start, end: closing });
     cursor = closing + 2;
   }
   return ranges;
+}
+function resolveStepMap(node, document) {
+  if ((0, import_yaml2.isMap)(node)) return node;
+  if (!(0, import_yaml2.isAlias)(node)) return void 0;
+  try {
+    const resolved = node.resolve(document);
+    return (0, import_yaml2.isMap)(resolved) && aliasGraphIsValid(resolved, document) ? resolved : void 0;
+  } catch {
+    return void 0;
+  }
+}
+function aliasGraphIsValid(node, document, visiting = /* @__PURE__ */ new Set(), visited = /* @__PURE__ */ new Set()) {
+  if ((0, import_yaml2.isAlias)(node)) {
+    let resolved;
+    try {
+      resolved = node.resolve(document);
+    } catch {
+      return false;
+    }
+    return resolved !== void 0 && aliasGraphIsValid(resolved, document, visiting, visited);
+  }
+  if ((0, import_yaml2.isScalar)(node)) return true;
+  if (!(0, import_yaml2.isMap)(node) && !(0, import_yaml2.isSeq)(node)) return false;
+  if (visiting.has(node)) return false;
+  if (visited.has(node)) return true;
+  visiting.add(node);
+  const valid = (0, import_yaml2.isMap)(node) ? node.items.every((pair) => aliasGraphIsValid(pair.key, document, visiting, visited) && aliasGraphIsValid(pair.value, document, visiting, visited)) : node.items.every((item) => aliasGraphIsValid(item, document, visiting, visited));
+  visiting.delete(node);
+  if (valid) visited.add(node);
+  return valid;
 }
 function implicitScalarExpressionRange(raw) {
   const range = trimRange(raw, 0, raw.length);
