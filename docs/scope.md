@@ -17,7 +17,7 @@ Review GitHub Actions workflows for security, supply-chain, and reliability defe
 - Secret leakage in workflows
 - Dangerous permissions / GITHUB_TOKEN misuse
 - Unreliable or insecure workflow patterns
-- Removed or renamed step outputs still referenced later in the same workflow
+- Removed or renamed step ids still referenced through outputs in the same job
 
 ## Out of scope (not a miss for this adversary)
 

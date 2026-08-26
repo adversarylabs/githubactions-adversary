@@ -187,14 +187,14 @@ export const spec = {
     },
     {
       id: "gha.step.stale-output-reference",
-      title: "Workflow references a removed step output",
-      summary: "A later step still reads a step output that this change removed or renamed",
+      title: "Workflow references a removed or renamed step",
+      summary: "A job still reads an output from a step identity that this change removed or renamed",
       category: "reliability",
       severity: "high",
       confidence: "high",
-      whyItMatters: "Downstream steps receive an empty value, so tagging, signing, or artifact archival can silently fail.",
+      whyItMatters: "The steps context cannot resolve a missing same-job step id, so downstream consumers receive an empty value.",
       impact: "Releases may ship untagged images or skip required artifacts.",
-      recommendation: "Update or delete every steps.<id>.outputs.<key> reference when removing or renaming that output.",
+      recommendation: "Update or delete every same-job steps.<id>.outputs.<key> reference when removing or renaming a step id.",
       complexity: "small",
       tags: ["reliability", "step-outputs"],
       match: {
