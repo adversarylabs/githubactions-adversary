@@ -3647,7 +3647,12 @@ var require_fast_uri = __commonJS({
     }
     function resolve3(baseURI, relativeURI, options) {
       const schemelessOptions = options ? Object.assign({ scheme: "null" }, options) : { scheme: "null" };
-      const resolved = resolveComponent(parse(baseURI, schemelessOptions), parse(relativeURI, schemelessOptions), schemelessOptions, true);
+      const { parsed: baseParsed, malformedAuthorityOrPort: baseMalformed } = parseWithStatus(baseURI, schemelessOptions);
+      const { parsed: relativeParsed, malformedAuthorityOrPort: relativeMalformed } = parseWithStatus(relativeURI, schemelessOptions);
+      if (baseMalformed || relativeMalformed) {
+        throw new Error(baseParsed.error || relativeParsed.error || "URI is malformed.");
+      }
+      const resolved = resolveComponent(baseParsed, relativeParsed, schemelessOptions, true);
       schemelessOptions.skipEscape = true;
       return serialize(resolved, schemelessOptions);
     }
@@ -3773,6 +3778,7 @@ var require_fast_uri = __commonJS({
     }
     var URI_PARSE = /^(?:([^#/:?]+):)?(?:\/\/((?:([^#/?@]*)@)?(\[[^#/?\]]+\]|[^#/:?]*)(?::(\d*))?))?([^#?]*)(?:\?([^#]*))?(?:#((?:.|[\n\r])*))?/u;
     var AUTHORITY_PREFIX = /^(?:[^#/:?]+:)?\/\/([^/?#]*)/;
+    var AUTHORITY_INTRODUCER_REGION = /^(?:[^#/:?]+:)?([/\\\t\n\r]*)/;
     function getParseError(parsed, matches) {
       if (matches[2] !== void 0 && parsed.path && parsed.path[0] !== "/") {
         return 'URI path must start with "/" when authority is present.';
@@ -3806,6 +3812,20 @@ var require_fast_uri = __commonJS({
       if (authorityMatch !== null && authorityMatch[1].indexOf("\\") !== -1) {
         parsed.error = "URI authority must not contain a literal backslash.";
         malformedAuthorityOrPort = true;
+      }
+      const introducerMatch = uri.match(AUTHORITY_INTRODUCER_REGION);
+      if (introducerMatch !== null) {
+        const region = introducerMatch[1];
+        const normalizedRegion = region.replace(/[\t\n\r]/g, "");
+        if (normalizedRegion.length >= 2) {
+          if (normalizedRegion.slice(0, 2) !== "//") {
+            parsed.error = parsed.error || "URI authority must not contain a literal backslash.";
+            malformedAuthorityOrPort = true;
+          } else if (region.length !== normalizedRegion.length) {
+            parsed.error = parsed.error || "URI authority introducer must not contain whitespace.";
+            malformedAuthorityOrPort = true;
+          }
+        }
       }
       const matches = uri.match(URI_PARSE);
       if (matches) {
@@ -7169,10 +7189,10 @@ var require_identity = __commonJS({
     var NODE_TYPE = /* @__PURE__ */ Symbol.for("yaml.node.type");
     var isAlias = (node) => !!node && typeof node === "object" && node[NODE_TYPE] === ALIAS;
     var isDocument = (node) => !!node && typeof node === "object" && node[NODE_TYPE] === DOC;
-    var isMap = (node) => !!node && typeof node === "object" && node[NODE_TYPE] === MAP;
+    var isMap2 = (node) => !!node && typeof node === "object" && node[NODE_TYPE] === MAP;
     var isPair = (node) => !!node && typeof node === "object" && node[NODE_TYPE] === PAIR;
-    var isScalar = (node) => !!node && typeof node === "object" && node[NODE_TYPE] === SCALAR;
-    var isSeq = (node) => !!node && typeof node === "object" && node[NODE_TYPE] === SEQ;
+    var isScalar2 = (node) => !!node && typeof node === "object" && node[NODE_TYPE] === SCALAR;
+    var isSeq2 = (node) => !!node && typeof node === "object" && node[NODE_TYPE] === SEQ;
     function isCollection(node) {
       if (node && typeof node === "object")
         switch (node[NODE_TYPE]) {
@@ -7193,7 +7213,7 @@ var require_identity = __commonJS({
         }
       return false;
     }
-    var hasAnchor = (node) => (isScalar(node) || isCollection(node)) && !!node.anchor;
+    var hasAnchor = (node) => (isScalar2(node) || isCollection(node)) && !!node.anchor;
     exports.ALIAS = ALIAS;
     exports.DOC = DOC;
     exports.MAP = MAP;
@@ -7205,11 +7225,11 @@ var require_identity = __commonJS({
     exports.isAlias = isAlias;
     exports.isCollection = isCollection;
     exports.isDocument = isDocument;
-    exports.isMap = isMap;
+    exports.isMap = isMap2;
     exports.isNode = isNode;
     exports.isPair = isPair;
-    exports.isScalar = isScalar;
-    exports.isSeq = isSeq;
+    exports.isScalar = isScalar2;
+    exports.isSeq = isSeq2;
   }
 });
 
@@ -11315,9 +11335,9 @@ var require_resolve_flow_collection = __commonJS({
     var blockMsg = "Block collections are not allowed within flow collections";
     var isBlock = (token) => token && (token.type === "block-map" || token.type === "block-seq");
     function resolveFlowCollection({ composeNode, composeEmptyNode }, ctx, fc, onError, tag) {
-      const isMap = fc.start.source === "{";
-      const fcName = isMap ? "flow map" : "flow sequence";
-      const NodeClass = tag?.nodeClass ?? (isMap ? YAMLMap.YAMLMap : YAMLSeq.YAMLSeq);
+      const isMap2 = fc.start.source === "{";
+      const fcName = isMap2 ? "flow map" : "flow sequence";
+      const NodeClass = tag?.nodeClass ?? (isMap2 ? YAMLMap.YAMLMap : YAMLSeq.YAMLSeq);
       const coll = new NodeClass(ctx.schema);
       coll.flow = true;
       const atRoot = ctx.atRoot;
@@ -11353,7 +11373,7 @@ var require_resolve_flow_collection = __commonJS({
             offset = props.end;
             continue;
           }
-          if (!isMap && ctx.options.strict && utilContainsNewline.containsNewline(key))
+          if (!isMap2 && ctx.options.strict && utilContainsNewline.containsNewline(key))
             onError(
               key,
               // checked by containsNewline()
@@ -11393,7 +11413,7 @@ var require_resolve_flow_collection = __commonJS({
             }
           }
         }
-        if (!isMap && !sep3 && !props.found) {
+        if (!isMap2 && !sep3 && !props.found) {
           const valueNode = value ? composeNode(ctx, value, props, onError) : composeEmptyNode(ctx, props.end, sep3, null, props, onError);
           coll.items.push(valueNode);
           offset = valueNode.range[2];
@@ -11416,7 +11436,7 @@ var require_resolve_flow_collection = __commonJS({
             startOnNewline: false
           });
           if (valueProps.found) {
-            if (!isMap && !props.found && ctx.options.strict) {
+            if (!isMap2 && !props.found && ctx.options.strict) {
               if (sep3)
                 for (const st of sep3) {
                   if (st === valueProps.found)
@@ -11448,7 +11468,7 @@ var require_resolve_flow_collection = __commonJS({
           const pair = new Pair.Pair(keyNode, valueNode);
           if (ctx.options.keepSourceTokens)
             pair.srcToken = collItem;
-          if (isMap) {
+          if (isMap2) {
             const map = coll;
             if (utilMapIncludes.mapIncludes(ctx, map.items, keyNode))
               onError(keyStart, "DUPLICATE_KEY", "Map keys must be unique");
@@ -11464,7 +11484,7 @@ var require_resolve_flow_collection = __commonJS({
           offset = valueNode ? valueNode.range[2] : valueProps.end;
         }
       }
-      const expectedEnd = isMap ? "}" : "]";
+      const expectedEnd = isMap2 ? "}" : "]";
       const [ce, ...ee] = fc.end;
       let cePos = offset;
       if (ce?.source === expectedEnd)
@@ -12750,7 +12770,7 @@ var require_cst = __commonJS({
     var FLOW_END = "";
     var SCALAR = "";
     var isCollection = (token) => !!token && "items" in token;
-    var isScalar = (token) => !!token && (token.type === "scalar" || token.type === "single-quoted-scalar" || token.type === "double-quoted-scalar" || token.type === "block-scalar");
+    var isScalar2 = (token) => !!token && (token.type === "scalar" || token.type === "single-quoted-scalar" || token.type === "double-quoted-scalar" || token.type === "block-scalar");
     function prettyToken(token) {
       switch (token) {
         case BOM:
@@ -12834,7 +12854,7 @@ var require_cst = __commonJS({
     exports.FLOW_END = FLOW_END;
     exports.SCALAR = SCALAR;
     exports.isCollection = isCollection;
-    exports.isScalar = isScalar;
+    exports.isScalar = isScalar2;
     exports.prettyToken = prettyToken;
     exports.tokenType = tokenType;
   }
@@ -17302,117 +17322,507 @@ function isCustomRunner(labels, expression) {
 
 // src/stale-step-outputs.ts
 var import_yaml2 = __toESM(require_dist(), 1);
-var REFERENCE = /steps\.([A-Za-z_][\w-]*)\.outputs\.([A-Za-z_][\w-]*)/g;
+var STEP_OUTPUT_REFERENCE = /\bsteps\s*\.\s*([A-Za-z_][\w-]*)\s*\.\s*outputs\s*\.\s*([A-Za-z_][\w-]*)/g;
+var STEP_RUNTIME_FIELDS = [
+  "continue-on-error",
+  "env",
+  "if",
+  "run",
+  "shell",
+  "timeout-minutes",
+  "with",
+  "working-directory"
+];
 function detectStaleStepOutputs(file, current, previous) {
   if (previous === void 0) return [];
-  const previousSteps = collectStepOutputs(previous);
-  if (previousSteps.size === 0) return [];
-  const currentSteps = collectStepOutputs(current);
+  const previousJobs = collectJobs2(previous);
+  const currentJobs = collectJobs2(current);
   const hits = [];
   const seen = /* @__PURE__ */ new Set();
-  for (const reference of collectReferences(current)) {
-    if (!outputRemoved(previousSteps, currentSteps, reference.stepId, reference.key)) continue;
-    const key = `${reference.line}:${reference.stepId}:${reference.key}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    hits.push({
-      file,
-      line: reference.line,
-      snippet: reference.snippet,
-      label: `Workflow still references steps.${reference.stepId}.outputs.${reference.key} after that output disappeared`,
-      data: { stepId: reference.stepId, outputKey: reference.key }
-    });
+  for (const [jobId, currentJob] of currentJobs) {
+    const previousJob = previousJobs.get(jobId);
+    if (previousJob === void 0 || !previousJob.valid || !currentJob.valid || !previousJob.executable || !currentJob.executable) continue;
+    const removedStepIds = new Set(
+      [...previousJob.stepIds.keys()].filter((stepId) => !currentJob.stepIds.has(stepId))
+    );
+    if (removedStepIds.size === 0) continue;
+    for (const reference of currentJob.references) {
+      if (!removedStepIds.has(reference.stepId)) continue;
+      const previousProducer = previousJob.stepIds.get(reference.stepId);
+      if (previousProducer === void 0 || !previousJob.references.some(
+        (candidate) => candidate.stepId === reference.stepId && candidate.outputKey === reference.outputKey && candidate.consumerKey === reference.consumerKey && (candidate.scope === "job-output" || candidate.scope === "step" && candidate.stepIndex !== void 0 && candidate.stepIndex > previousProducer.index)
+      )) continue;
+      const key = `${jobId}:${reference.line}:${reference.stepId}:${reference.outputKey}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      hits.push({
+        file,
+        line: reference.line,
+        snippet: reference.snippet,
+        label: `Job ${jobId} still references steps.${reference.stepId}.outputs.${reference.outputKey} after step ${reference.stepId} was removed or renamed`,
+        data: {
+          jobId,
+          stepId: reference.stepId,
+          outputKey: reference.outputKey,
+          relationshipChange: "same-job-step-id-removed-or-renamed",
+          previousStepLine: previousProducer.line
+        }
+      });
+    }
   }
   return hits;
 }
-function outputRemoved(previousSteps, currentSteps, stepId, key) {
-  const previous = previousSteps.get(stepId);
-  if (previous === void 0) return false;
-  if (!emittedKey(previous, key)) return false;
-  const current = currentSteps.get(stepId);
-  if (current === void 0) return true;
-  return !emittedKey(current, key);
-}
-function emittedKey(step, key) {
-  return step.opaque || step.declared.has(key);
-}
-function collectStepOutputs(source) {
-  const steps = /* @__PURE__ */ new Map();
+function collectJobs2(source) {
+  const jobs = /* @__PURE__ */ new Map();
   let documents;
   try {
     documents = (0, import_yaml2.parseAllDocuments)(source, { prettyErrors: false, uniqueKeys: true });
   } catch {
-    return steps;
+    return jobs;
   }
-  for (const document of documents) {
-    if (document.errors.length > 0) continue;
-    let manifest;
-    try {
-      manifest = asRecord(document.toJS({ maxAliasCount: 100 }));
-    } catch {
-      continue;
+  if (documents.length !== 1 || documents[0]?.errors.length !== 0) return jobs;
+  const root = documents[0]?.contents;
+  if (!(0, import_yaml2.isMap)(root)) return jobs;
+  const jobsNode = mapValue(root, "jobs");
+  if (!(0, import_yaml2.isMap)(jobsNode)) return jobs;
+  for (const pair of jobsNode.items) {
+    const jobId = scalarString(pair.key);
+    const jobNode = pair.value;
+    if (jobId === void 0 || !(0, import_yaml2.isMap)(jobNode)) continue;
+    const contract = {
+      stepIds: /* @__PURE__ */ new Map(),
+      references: [],
+      valid: true,
+      executable: !conditionContainerIsStaticallyDisabled(jobNode)
+    };
+    const outputsNode = mapValue(jobNode, "outputs");
+    if ((0, import_yaml2.isMap)(outputsNode)) {
+      for (const output of outputsNode.items) {
+        const outputName = scalarString(output.key);
+        if (outputName === void 0) continue;
+        contract.references.push(...collectReferences(output.value, source).map((reference, ordinal) => ({
+          ...reference,
+          scope: "job-output",
+          consumerKey: `job-output:${outputName}:${ordinal}`
+        })));
+      }
     }
-    if (manifest === void 0) continue;
-    const jobs = asRecord(manifest.jobs);
-    if (jobs === void 0) continue;
-    for (const job of Object.values(jobs)) {
-      const list = asRecord(job)?.steps;
-      if (!Array.isArray(list)) continue;
-      for (const raw of list) {
-        const step = asRecord(raw);
-        if (step === void 0) continue;
-        const id = step.id;
-        if (typeof id !== "string" || id.length === 0) continue;
-        const discovered = discoverStepOutputs(step);
-        const existing = steps.get(id);
-        if (existing === void 0) {
-          steps.set(id, discovered);
-          continue;
+    const environmentNode = mapValue(jobNode, "environment");
+    if ((0, import_yaml2.isMap)(environmentNode)) {
+      const environmentUrl = mapValue(environmentNode, "url");
+      if (environmentUrl !== void 0) {
+        contract.references.push(...collectReferences(environmentUrl, source).map((reference, ordinal) => ({
+          ...reference,
+          scope: "job-output",
+          consumerKey: `environment-url:${ordinal}`
+        })));
+      }
+    }
+    const stepsNode = mapValue(jobNode, "steps");
+    if ((0, import_yaml2.isSeq)(stepsNode)) {
+      const stepMaps = stepsNode.items.filter(import_yaml2.isMap);
+      const semanticKeys = stepMaps.map((step) => semanticNodeKey(step));
+      const semanticCounts = /* @__PURE__ */ new Map();
+      for (const key of semanticKeys) semanticCounts.set(key, (semanticCounts.get(key) ?? 0) + 1);
+      const allIds = /* @__PURE__ */ new Set();
+      for (const rawStep of stepMaps) {
+        const id = scalarString(mapValue(rawStep, "id"));
+        if (id === void 0 || id.length === 0) continue;
+        if (allIds.has(id)) contract.valid = false;
+        allIds.add(id);
+      }
+      for (const [index, rawStep] of stepsNode.items.entries()) {
+        if (!(0, import_yaml2.isMap)(rawStep)) continue;
+        if (conditionContainerIsStaticallyDisabled(rawStep)) continue;
+        const idNode = mapValue(rawStep, "id");
+        const id = scalarString(idNode);
+        const semanticKey = semanticNodeKey(rawStep);
+        const stepConsumerKey = id !== void 0 && id.length > 0 ? `id:${id}` : semanticCounts.get(semanticKey) === 1 ? `semantic:${semanticKey}` : void 0;
+        for (const field of STEP_RUNTIME_FIELDS) {
+          const fieldNode = mapValue(rawStep, field);
+          if (fieldNode === void 0 || stepConsumerKey === void 0) continue;
+          contract.references.push(...collectReferences(fieldNode, source, field === "if").map((reference, ordinal) => ({
+            ...reference,
+            scope: "step",
+            stepIndex: index,
+            consumerKey: `step:${stepConsumerKey}:${field}:${ordinal}`
+          })));
         }
-        existing.opaque ||= discovered.opaque;
-        for (const key of discovered.declared) existing.declared.add(key);
+        if (id === void 0 || id.length === 0) continue;
+        contract.stepIds.set(id, { line: nodeLine(idNode, source), index });
+      }
+    }
+    jobs.set(jobId, contract);
+  }
+  return jobs;
+}
+function collectReferences(node, source, implicitExpression = false) {
+  const references = [];
+  const lines = source.split(/\r?\n/);
+  function visit(value) {
+    if ((0, import_yaml2.isMap)(value)) {
+      for (const pair of value.items) visit(pair.value);
+      return;
+    }
+    if ((0, import_yaml2.isSeq)(value)) {
+      for (const item of value.items) visit(item);
+      return;
+    }
+    if (!(0, import_yaml2.isScalar)(value) || value.range === void 0 || value.range === null) return;
+    const raw = source.slice(value.range[0], value.range[1]);
+    const explicitRanges = bracedExpressionRanges(raw);
+    const ranges = explicitRanges.length > 0 ? explicitRanges : implicitExpression ? [implicitScalarExpressionRange(raw)] : [];
+    for (const range of ranges) {
+      if (range.end <= range.start) continue;
+      const body = maskExpressionStrings(raw.slice(range.start, range.end));
+      STEP_OUTPUT_REFERENCE.lastIndex = 0;
+      let match;
+      while ((match = STEP_OUTPUT_REFERENCE.exec(body.text)) !== null) {
+        if (!expressionOffsetIsReachable(body.text, match.index ?? 0, body.stringValues)) continue;
+        const offset = value.range[0] + range.start + (match.index ?? 0);
+        const line = offsetLine(source, offset);
+        references.push({
+          stepId: match[1] ?? "",
+          outputKey: match[2] ?? "",
+          line,
+          snippet: lines[line - 1]?.trim() ?? ""
+        });
       }
     }
   }
-  return steps;
-}
-function discoverStepOutputs(step) {
-  if (typeof step.uses === "string") return { declared: /* @__PURE__ */ new Set(), opaque: true };
-  if (typeof step.run !== "string") return { declared: /* @__PURE__ */ new Set(), opaque: false };
-  const declared = /* @__PURE__ */ new Set();
-  let opaque = false;
-  for (const line of step.run.split(/\r?\n/)) {
-    if (!/(?:\$GITHUB_OUTPUT|\$\{GITHUB_OUTPUT\})/.test(line)) continue;
-    const match = /["']?([A-Za-z_][\w-]*)(?:=|<<)[^\n]*(?:\$GITHUB_OUTPUT|\$\{GITHUB_OUTPUT\})/.exec(line);
-    if (match?.[1] === void 0) {
-      opaque = true;
-    } else {
-      declared.add(match[1]);
-    }
-  }
-  return { declared, opaque };
-}
-function collectReferences(source) {
-  const references = [];
-  const lines = source.split(/\r?\n/);
-  for (let index = 0; index < lines.length; index += 1) {
-    const line = lines[index] ?? "";
-    if (/^\s*#/.test(line)) continue;
-    REFERENCE.lastIndex = 0;
-    let match;
-    while ((match = REFERENCE.exec(line)) !== null) {
-      references.push({
-        stepId: match[1] ?? "",
-        key: match[2] ?? "",
-        line: index + 1,
-        snippet: line.trim()
-      });
-    }
-  }
+  visit(node);
   return references;
 }
-function asRecord(value) {
-  return value !== null && typeof value === "object" && !Array.isArray(value) ? value : void 0;
+function bracedExpressionRanges(raw) {
+  const ranges = [];
+  let cursor = 0;
+  while (cursor < raw.length - 2) {
+    const opening = raw.indexOf("${{", cursor);
+    if (opening < 0) break;
+    const start = opening + 3;
+    let quote;
+    let closing = -1;
+    for (let index = start; index < raw.length - 1; index += 1) {
+      const character = raw[index];
+      if (quote !== void 0) {
+        if (quote === "'" && character === "'" && raw[index + 1] === "'") {
+          index += 1;
+          continue;
+        }
+        if (character !== quote) continue;
+        if (quote === '"') {
+          let backslashes = 0;
+          for (let escaped = index - 1; escaped >= start && raw[escaped] === "\\"; escaped -= 1) {
+            backslashes += 1;
+          }
+          if (backslashes % 2 === 1) continue;
+        }
+        quote = void 0;
+        continue;
+      }
+      if (character === "'" || character === '"') {
+        quote = character;
+        continue;
+      }
+      if (character === "}" && raw[index + 1] === "}") {
+        closing = index;
+        break;
+      }
+    }
+    if (closing < 0) break;
+    ranges.push({ start, end: closing });
+    cursor = closing + 2;
+  }
+  return ranges;
+}
+function implicitScalarExpressionRange(raw) {
+  const range = trimRange(raw, 0, raw.length);
+  const first = raw[range.start];
+  if ((first === "'" || first === '"') && raw[range.end - 1] === first) {
+    return trimRange(raw, range.start + 1, range.end - 1);
+  }
+  return range;
+}
+function conditionContainerIsStaticallyDisabled(container) {
+  const condition = mapValue(container, "if");
+  if (!(0, import_yaml2.isScalar)(condition)) return false;
+  if (condition.value === false || condition.value === null || Object.is(condition.value, 0) || Object.is(condition.value, -0)) {
+    return true;
+  }
+  if (typeof condition.value !== "string") return false;
+  const raw = condition.value.trim();
+  if (raw.length === 0) return true;
+  const expression = /^\$\{\{([\s\S]*)\}\}$/.exec(raw)?.[1] ?? raw;
+  const masked = maskExpressionStrings(expression);
+  return evaluateBoolean(masked.text, masked.stringValues) === false;
+}
+function expressionOffsetIsReachable(expression, offset, stringValues) {
+  const range = trimRange(expression, 0, expression.length);
+  if (offset < range.start || offset >= range.end) return false;
+  return offsetReachableInRange(expression, offset, range.start, range.end, stringValues);
+}
+function offsetReachableInRange(expression, offset, start, end, stringValues) {
+  const range = unwrapParenthesizedRange(expression, trimRange(expression, start, end));
+  const orParts = splitLogical(expression, range.start, range.end, "||");
+  if (orParts.length > 1) {
+    const target = orParts.findIndex((part2) => offset >= part2.start && offset < part2.end);
+    if (target < 0) return false;
+    for (let index = 0; index < target; index += 1) {
+      if (evaluateBoolean(expression.slice(orParts[index].start, orParts[index].end), stringValues) === true) return false;
+    }
+    const part = orParts[target];
+    return offsetReachableInRange(expression, offset, part.start, part.end, stringValues);
+  }
+  const andParts = splitLogical(expression, range.start, range.end, "&&");
+  if (andParts.length > 1) {
+    const target = andParts.findIndex((part2) => offset >= part2.start && offset < part2.end);
+    if (target < 0) return false;
+    for (let index = 0; index < target; index += 1) {
+      if (evaluateBoolean(expression.slice(andParts[index].start, andParts[index].end), stringValues) === false) return false;
+    }
+    const part = andParts[target];
+    return offsetReachableInRange(expression, offset, part.start, part.end, stringValues);
+  }
+  const nested = innermostParenthesizedRange(expression, offset, range.start, range.end);
+  return nested === void 0 || offsetReachableInRange(expression, offset, nested.start + 1, nested.end - 1, stringValues);
+}
+function evaluateBoolean(expression, stringValues) {
+  const range = unwrapParenthesizedRange(expression, trimRange(expression, 0, expression.length));
+  const orParts = splitLogical(expression, range.start, range.end, "||");
+  if (orParts.length > 1) {
+    const values = orParts.map((part) => evaluateBoolean(expression.slice(part.start, part.end), stringValues));
+    if (values.some((value) => value === true)) return true;
+    return values.every((value) => value === false) ? false : void 0;
+  }
+  const andParts = splitLogical(expression, range.start, range.end, "&&");
+  if (andParts.length > 1) {
+    const values = andParts.map((part) => evaluateBoolean(expression.slice(part.start, part.end), stringValues));
+    if (values.some((value) => value === false)) return false;
+    return values.every((value) => value === true) ? true : void 0;
+  }
+  const text = expression.slice(range.start, range.end).trim();
+  const comparison = splitComparison(text);
+  if (comparison !== void 0) {
+    const left = evaluateConstant(comparison.left, stringValues);
+    const right = evaluateConstant(comparison.right, stringValues);
+    if (left === void 0 || right === void 0) return void 0;
+    const equal = constantsEqual(left, right);
+    if (equal === void 0) return void 0;
+    return comparison.operator === "==" ? equal : !equal;
+  }
+  if (text.startsWith("!")) {
+    const value = evaluateBoolean(text.slice(1), stringValues);
+    return value === void 0 ? void 0 : !value;
+  }
+  const constant = parseConstant(text, stringValues);
+  if (constant?.kind === "boolean") return constant.value;
+  if (constant?.kind === "null") return false;
+  if (constant?.kind === "number") return !Object.is(constant.value, 0) && !Object.is(constant.value, -0);
+  if (constant?.kind === "string") return constant.value.length > 0;
+  return void 0;
+}
+function evaluateConstant(expression, stringValues) {
+  const range = unwrapParenthesizedRange(expression, trimRange(expression, 0, expression.length));
+  const text = expression.slice(range.start, range.end).trim();
+  if (text.startsWith("!")) {
+    const value = evaluateBoolean(text.slice(1), stringValues);
+    return value === void 0 ? void 0 : { kind: "boolean", value: !value };
+  }
+  return parseConstant(text, stringValues);
+}
+function constantsEqual(left, right) {
+  if (left.kind === right.kind) return left.value === right.value;
+  const leftNumber = coerceConstantNumber(left);
+  const rightNumber = coerceConstantNumber(right);
+  return leftNumber === void 0 || rightNumber === void 0 ? void 0 : leftNumber === rightNumber;
+}
+function coerceConstantNumber(value) {
+  switch (value.kind) {
+    case "null":
+      return 0;
+    case "boolean":
+      return value.value ? 1 : 0;
+    case "number":
+      return Number.isFinite(value.value) ? value.value : void 0;
+    case "string": {
+      if (value.value.length === 0) return 0;
+      try {
+        const parsed = JSON.parse(value.value);
+        return typeof parsed === "number" && Number.isFinite(parsed) ? parsed : void 0;
+      } catch {
+        return void 0;
+      }
+    }
+  }
+}
+function parseConstant(text, stringValues) {
+  const value = text.trim();
+  if (/^true$/i.test(value)) return { kind: "boolean", value: true };
+  if (/^false$/i.test(value)) return { kind: "boolean", value: false };
+  if (/^null$/i.test(value)) return { kind: "null", value: null };
+  if (value.length === 1 && value.charCodeAt(0) >= 57344 && value.charCodeAt(0) <= 63743) {
+    const stringValue = stringValues.get(value);
+    return stringValue === void 0 ? void 0 : { kind: "string", value: stringValue };
+  }
+  if (/^-?0[xX][0-9a-fA-F]+$/.test(value)) {
+    const negative = value.startsWith("-");
+    const parsed = Number.parseInt(negative ? value.slice(3) : value.slice(2), 16);
+    return { kind: "number", value: negative ? -parsed : parsed };
+  }
+  if (/^-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?$/.test(value)) {
+    return { kind: "number", value: Number(value) };
+  }
+  return void 0;
+}
+function splitComparison(expression) {
+  let depth = 0;
+  for (let index = 0; index < expression.length - 1; index += 1) {
+    if (expression[index] === "(") depth += 1;
+    else if (expression[index] === ")") depth = Math.max(0, depth - 1);
+    else if (depth === 0) {
+      const operator = expression.slice(index, index + 2);
+      if (operator === "==" || operator === "!=") {
+        const left = expression.slice(0, index).trim();
+        const right = expression.slice(index + 2).trim();
+        if (left.length === 0 || right.length === 0 || splitComparison(right) !== void 0) return void 0;
+        return { left, operator, right };
+      }
+    }
+  }
+  return void 0;
+}
+function splitLogical(expression, start, end, operator) {
+  const parts = [];
+  let depth = 0;
+  let partStart = start;
+  for (let index = start; index < end - 1; index += 1) {
+    const character = expression[index];
+    if (character === "(") depth += 1;
+    else if (character === ")") depth = Math.max(0, depth - 1);
+    else if (depth === 0 && expression.slice(index, index + 2) === operator) {
+      parts.push(trimRange(expression, partStart, index));
+      partStart = index + 2;
+      index += 1;
+    }
+  }
+  if (parts.length === 0) return [{ start, end }];
+  parts.push(trimRange(expression, partStart, end));
+  return parts;
+}
+function unwrapParenthesizedRange(expression, initial) {
+  let range = initial;
+  while (expression[range.start] === "(" && matchingParenthesis(expression, range.start) === range.end - 1) {
+    range = trimRange(expression, range.start + 1, range.end - 1);
+  }
+  return range;
+}
+function innermostParenthesizedRange(expression, offset, start, end) {
+  const stack = [];
+  let best;
+  for (let index = start; index < end; index += 1) {
+    if (expression[index] === "(") stack.push(index);
+    else if (expression[index] === ")") {
+      const open2 = stack.pop();
+      if (open2 !== void 0 && offset > open2 && offset < index) best = { start: open2, end: index + 1 };
+    }
+  }
+  return best;
+}
+function matchingParenthesis(expression, open2) {
+  let depth = 0;
+  for (let index = open2; index < expression.length; index += 1) {
+    if (expression[index] === "(") depth += 1;
+    else if (expression[index] === ")" && --depth === 0) return index;
+  }
+  return void 0;
+}
+function trimRange(expression, start, end) {
+  while (start < end && /\s/.test(expression[start] ?? "")) start += 1;
+  while (end > start && /\s/.test(expression[end - 1] ?? "")) end -= 1;
+  return { start, end };
+}
+function maskExpressionStrings(expression) {
+  const characters = expression.split("");
+  const stringTokens = /* @__PURE__ */ new Map([["", "\uE000"]]);
+  const stringValues = /* @__PURE__ */ new Map([["\uE000", ""]]);
+  let quote;
+  let quoteStart = -1;
+  let stringValue = "";
+  for (let index = 0; index < characters.length; index += 1) {
+    const character = characters[index];
+    if (quote === void 0) {
+      if (character === "'" || character === '"') {
+        quote = character;
+        quoteStart = index;
+        stringValue = "";
+        characters[index] = " ";
+      }
+      continue;
+    }
+    characters[index] = " ";
+    if (character !== quote) {
+      stringValue += character;
+      continue;
+    }
+    if (quote === "'" && characters[index + 1] === "'") {
+      stringValue += "'";
+      characters[index + 1] = " ";
+      index += 1;
+      continue;
+    }
+    let backslashes = 0;
+    for (let cursor = index - 1; cursor >= 0 && expression[cursor] === "\\"; cursor -= 1) backslashes += 1;
+    if (quote === '"' && backslashes % 2 === 1) {
+      stringValue += '"';
+      continue;
+    }
+    const normalized = stringValue.toLocaleLowerCase("en-US");
+    let token = stringTokens.get(normalized);
+    if (token === void 0 && stringTokens.size < 6400) {
+      token = String.fromCharCode(57344 + stringTokens.size);
+      stringTokens.set(normalized, token);
+      stringValues.set(token, normalized);
+    }
+    characters[quoteStart] = token ?? " ";
+    quote = void 0;
+    quoteStart = -1;
+    stringValue = "";
+    continue;
+  }
+  if (quoteStart >= 0) characters[quoteStart] = " ";
+  return { text: characters.join(""), stringValues };
+}
+function semanticNodeKey(node) {
+  return JSON.stringify(semanticNodeValue(node));
+}
+function semanticNodeValue(node) {
+  if ((0, import_yaml2.isScalar)(node)) return ["scalar", typeof node.value, node.value];
+  if ((0, import_yaml2.isSeq)(node)) return ["sequence", node.items.map(semanticNodeValue)];
+  if ((0, import_yaml2.isMap)(node)) {
+    const entries = node.items.map((pair) => [
+      semanticNodeKey(pair.key),
+      semanticNodeValue(pair.value)
+    ]);
+    entries.sort(([left], [right]) => left.localeCompare(right));
+    return ["mapping", entries];
+  }
+  return ["unsupported"];
+}
+function mapValue(map, key) {
+  return map.items.find((pair) => scalarString(pair.key) === key)?.value;
+}
+function scalarString(node) {
+  return (0, import_yaml2.isScalar)(node) && typeof node.value === "string" ? node.value : void 0;
+}
+function nodeLine(node, source) {
+  return (0, import_yaml2.isScalar)(node) && node.range !== void 0 && node.range !== null ? offsetLine(source, node.range[0]) : 1;
+}
+function offsetLine(source, offset) {
+  let line = 1;
+  for (let index = 0; index < offset; index += 1) {
+    if (source.charCodeAt(index) === 10) line += 1;
+  }
+  return line;
 }
 
 // src/spec.ts
@@ -17590,14 +18000,14 @@ var spec = {
     },
     {
       id: "gha.step.stale-output-reference",
-      title: "Workflow references a removed step output",
-      summary: "A later step still reads a step output that this change removed or renamed",
+      title: "Workflow references a removed or renamed step",
+      summary: "A job still reads an output from a step identity that this change removed or renamed",
       category: "reliability",
       severity: "high",
       confidence: "high",
-      whyItMatters: "Downstream steps receive an empty value, so tagging, signing, or artifact archival can silently fail.",
+      whyItMatters: "The steps context cannot resolve a missing same-job step id, so downstream consumers receive an empty value.",
       impact: "Releases may ship untagged images or skip required artifacts.",
-      recommendation: "Update or delete every steps.<id>.outputs.<key> reference when removing or renaming that output.",
+      recommendation: "Update or delete every same-job steps.<id>.outputs.<key> reference when removing or renaming a step id.",
       complexity: "small",
       tags: ["reliability", "step-outputs"],
       match: {
@@ -17997,7 +18407,7 @@ function matchesGlob(path, glob) {
 
 // src/index.ts
 function createApp() {
-  const app = new Adversary({ name: "github-actions", version: "0.0.13", review: { maximumFindings: 8 } });
+  const app = new Adversary({ name: "github-actions", version: "0.0.15", review: { maximumFindings: 8 } });
   registerRules(app);
   app.rule("github-actions.review", async (ctx) => analyzeRepository(ctx));
   return app;
