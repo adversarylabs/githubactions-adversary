@@ -32,7 +32,7 @@ test("the bundled runtime executes without node_modules", async () => {
   };
   const result = await runtime.createApp().run({ input: { source: { path: target } } });
   assert.equal(result.adversary.name, "github-actions");
-  assert.equal(result.adversary.version, "0.0.15");
+  assert.equal(result.adversary.version, "0.0.18");
   assert.deepEqual(result.findings, []);
 });
 
