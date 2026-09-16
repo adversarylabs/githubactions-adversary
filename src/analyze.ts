@@ -3,6 +3,7 @@ import { readdir } from "node:fs/promises";
 import { join, sep } from "node:path";
 import { promisify } from "node:util";
 import { type RuleContext } from "@adversarylabs/sdk";
+import { ACTIONLINT_VERSION, runActionlint } from "./actionlint.js";
 import { detectCiSecurityIssues, GHA_RULE_IDS } from "./ci-security-core.js";
 import { detectMissingLongRunningJobTimeouts } from "./job-timeouts.js";
 import { detectStaleStepOutputs } from "./stale-step-outputs.js";
@@ -60,6 +61,27 @@ export async function analyzeRepository(ctx: RuleContext): Promise<void> {
 
   const detections: Detection[] = [];
   for (const file of sources) {
+    const actionlintRule = byId.get("gha.workflow.actionlint");
+    if (actionlintRule !== undefined) {
+      for (const diagnostic of await runActionlint(file.path, file.source)) {
+        // Embedded mode cannot load repository actionlint config, so custom
+        // runner labels are left to the standalone lint job and native rules.
+        if (diagnostic.kind === "runner-label") continue;
+        const line = Math.max(1, diagnostic.line);
+        detections.push({
+          rule: actionlintRule,
+          file: file.path,
+          line,
+          snippet: file.source.split(/\r?\n/)[line - 1]?.trim() ?? "",
+          label: diagnostic.message,
+          data: {
+            actionlintVersion: ACTIONLINT_VERSION,
+            kind: diagnostic.kind,
+            column: diagnostic.column,
+          },
+        });
+      }
+    }
     for (const hit of detectCiSecurityIssues(file.path, file.source)) {
       if (!isEligibleLine(file, hit.line)) continue;
       const ruleId = GHA_RULE_IDS[hit.key];

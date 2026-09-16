@@ -20,6 +20,25 @@ export const spec = {
   files: [...workflowFiles],
   rules: [
     {
+      id: "gha.workflow.actionlint",
+      title: "GitHub Actions workflow fails static validation",
+      summary: "actionlint found invalid or inconsistent GitHub Actions workflow configuration",
+      category: "correctness",
+      severity: "medium",
+      confidence: "high",
+      whyItMatters: "Invalid workflow syntax, expressions, events, or job wiring can prevent CI from starting or make it behave differently than intended.",
+      impact: "Required validation, release, or deployment work may be skipped or fail before its jobs execute.",
+      recommendation: "Correct the reported actionlint diagnostic and rerun workflow validation.",
+      complexity: "small",
+      tags: ["workflow", "correctness", "actionlint"],
+      match: {
+        kind: "content",
+        files: [...workflowFiles],
+        pattern: { pattern: "(?!)", flags: "" },
+        requires: [],
+      },
+    },
+    {
       id: "gha.action.unpinned-tag",
       title: "External action uses a mutable reference",
       summary: "External action uses a mutable tag or branch",

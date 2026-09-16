@@ -49,4 +49,8 @@ const notices = bundledPackages.map((name) => {
 const noticeSections = await Promise.all(notices.map(async ([name, license, path]) =>
   `## ${name} (${license})\n\n${(await readFile(path, "utf8")).trim()}`,
 ));
+noticeSections.push(
+  `## actionlint (MIT)\n\n${(await readFile("vendor/actionlint/LICENSE", "utf8")).trim()}`,
+  `## Go WebAssembly runtime (BSD-3-Clause)\n\n${(await readFile("vendor/actionlint/GO_LICENSE", "utf8")).trim()}`,
+);
 await writeFile("THIRD_PARTY_NOTICES.md", `# Third-party notices\n\n${noticeSections.join("\n\n")}\n`);

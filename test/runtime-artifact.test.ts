@@ -17,12 +17,13 @@ test("the bundled runtime executes without node_modules", async () => {
   await cp(join(projectRoot, "dist", "index.js"), join(artifact, "dist", "index.js"));
   await cp(join(projectRoot, "schema"), join(artifact, "schema"), { recursive: true });
   await cp(join(projectRoot, "schemas"), join(artifact, "schemas"), { recursive: true });
+  await cp(join(projectRoot, "vendor"), join(artifact, "vendor"), { recursive: true });
   await cp(join(projectRoot, "THIRD_PARTY_NOTICES.md"), join(artifact, "THIRD_PARTY_NOTICES.md"));
   await writeFile(join(artifact, "package.json"), '{"type":"module"}\n');
 
   const notices = await readFile(join(artifact, "THIRD_PARTY_NOTICES.md"), "utf8");
   assert.deepEqual([...notices.matchAll(/^## (.+?) \(/gm)].map((match) => match[1]), [
-    "@adversarylabs/sdk", "ajv", "fast-deep-equal", "fast-uri", "json-schema-traverse", "yaml",
+    "@adversarylabs/sdk", "ajv", "fast-deep-equal", "fast-uri", "json-schema-traverse", "yaml", "actionlint", "Go WebAssembly runtime",
   ]);
   assert.match(notices, /Permission is hereby granted/);
   assert.match(notices, /Redistribution and use in source and binary forms/);
@@ -50,6 +51,8 @@ test("packaging excludes linked-worktree metadata and shipped files contain no l
     "schema/adversary.manifest.v1.schema.json",
     "schemas/adversary.review.v1.schema.json",
     "package.json",
+    "vendor/actionlint/actionlint.wasm",
+    "vendor/actionlint/wasm_exec.js",
   ];
   const archiveRoot = await mkdtemp(join(tmpdir(), "github-actions-package-"));
   const archive = join(archiveRoot, "package.tar");
@@ -65,6 +68,7 @@ test("packaging excludes linked-worktree metadata and shipped files contain no l
     assert.equal(relative.split("/").includes(".git"), false, `${relative} must not ship`);
   }
   for (const relative of runtimeFiles) {
+    if (relative.endsWith(".wasm")) continue;
     const content = await readFile(join(projectRoot, relative), "utf8");
     assert.doesNotMatch(content, /(?:\/Users\/|\/private\/tmp\/|[A-Za-z]:\\\\Users\\\\)/);
   }

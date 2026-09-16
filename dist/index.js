@@ -17557,6 +17557,76 @@ import { readdir as readdir4 } from "node:fs/promises";
 import { join as join4, sep as sep2 } from "node:path";
 import { promisify as promisify2 } from "node:util";
 
+// src/actionlint.ts
+import { readFile as readFile6 } from "node:fs/promises";
+import { runInThisContext } from "node:vm";
+var ACTIONLINT_VERSION = "1.7.12";
+var runtime = globalThis;
+var initialization;
+var active = false;
+async function runActionlint(path, source, runnerLabels = []) {
+  await initialize();
+  if (active) throw new Error("actionlint WebAssembly runtime does not support concurrent checks");
+  const run = runtime.__runActionlint;
+  if (run === void 0) throw new Error("actionlint WebAssembly entrypoint is unavailable");
+  active = true;
+  try {
+    return await new Promise((resolve3, reject) => {
+      runtime.__actionlintResolve = (value) => {
+        try {
+          resolve3(parseErrors(value));
+        } catch (error) {
+          reject(error);
+        }
+      };
+      runtime.__actionlintReject = (message) => reject(new Error(`actionlint failed: ${message}`));
+      run(source, path, runnerLabels);
+    });
+  } finally {
+    active = false;
+    runtime.__actionlintResolve = void 0;
+    runtime.__actionlintReject = void 0;
+  }
+}
+function initialize() {
+  initialization ??= initializeRuntime();
+  return initialization;
+}
+async function initializeRuntime() {
+  const shimUrl = new URL("../vendor/actionlint/wasm_exec.js", import.meta.url);
+  const wasmUrl = new URL("../vendor/actionlint/actionlint.wasm", import.meta.url);
+  runInThisContext(await readFile6(shimUrl, "utf8"), { filename: shimUrl.pathname });
+  const Go = runtime.Go;
+  if (Go === void 0) throw new Error("vendored Go WebAssembly runtime did not initialize");
+  const go = new Go();
+  const module = await WebAssembly.compile(await readFile6(wasmUrl));
+  const instance = await WebAssembly.instantiate(module, go.importObject);
+  await new Promise((resolve3, reject) => {
+    runtime.__actionlintReady = resolve3;
+    void go.run(instance).then(
+      () => reject(new Error("actionlint WebAssembly runtime exited unexpectedly")),
+      reject
+    );
+  });
+  runtime.__actionlintReady = void 0;
+}
+function parseErrors(value) {
+  if (!Array.isArray(value)) throw new Error("actionlint returned a non-array result");
+  return value.map((item) => {
+    if (typeof item !== "object" || item === null) throw new Error("actionlint returned an invalid diagnostic");
+    const candidate = item;
+    if (typeof candidate.message !== "string" || typeof candidate.line !== "number" || typeof candidate.column !== "number" || typeof candidate.kind !== "string") {
+      throw new Error("actionlint returned an incomplete diagnostic");
+    }
+    return {
+      message: candidate.message,
+      line: candidate.line,
+      column: candidate.column,
+      kind: candidate.kind
+    };
+  });
+}
+
 // src/ci-security-core.ts
 function detectCiSecurityIssues(file, source) {
   const hits = [];
@@ -18370,6 +18440,25 @@ var spec = {
   files: [...workflowFiles],
   rules: [
     {
+      id: "gha.workflow.actionlint",
+      title: "GitHub Actions workflow fails static validation",
+      summary: "actionlint found invalid or inconsistent GitHub Actions workflow configuration",
+      category: "correctness",
+      severity: "medium",
+      confidence: "high",
+      whyItMatters: "Invalid workflow syntax, expressions, events, or job wiring can prevent CI from starting or make it behave differently than intended.",
+      impact: "Required validation, release, or deployment work may be skipped or fail before its jobs execute.",
+      recommendation: "Correct the reported actionlint diagnostic and rerun workflow validation.",
+      complexity: "small",
+      tags: ["workflow", "correctness", "actionlint"],
+      match: {
+        kind: "content",
+        files: [...workflowFiles],
+        pattern: { pattern: "(?!)", flags: "" },
+        requires: []
+      }
+    },
+    {
       id: "gha.action.unpinned-tag",
       title: "External action uses a mutable reference",
       summary: "External action uses a mutable tag or branch",
@@ -18804,6 +18893,25 @@ async function analyzeRepository(ctx) {
   ctx.summary.files_scanned = sources.length;
   const detections = [];
   for (const file of sources) {
+    const actionlintRule = byId2.get("gha.workflow.actionlint");
+    if (actionlintRule !== void 0) {
+      for (const diagnostic of await runActionlint(file.path, file.source)) {
+        if (diagnostic.kind === "runner-label") continue;
+        const line = Math.max(1, diagnostic.line);
+        detections.push({
+          rule: actionlintRule,
+          file: file.path,
+          line,
+          snippet: file.source.split(/\r?\n/)[line - 1]?.trim() ?? "",
+          label: diagnostic.message,
+          data: {
+            actionlintVersion: ACTIONLINT_VERSION,
+            kind: diagnostic.kind,
+            column: diagnostic.column
+          }
+        });
+      }
+    }
     for (const hit of detectCiSecurityIssues(file.path, file.source)) {
       if (!isEligibleLine(file, hit.line)) continue;
       const ruleId = GHA_RULE_IDS[hit.key];
